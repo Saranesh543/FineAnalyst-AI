@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import { CustomTooltip, COLORS } from './chart-utils';
 import { EvidenceArtifact } from '@/lib/types/chat';
 
-export function PieChartWidget({ artifact, xKey, yKey }: { artifact: EvidenceArtifact, xKey: string, yKey: string }) {
+export function PieChartWidget({ artifact, xKey, yKey, isDonut = false }: { artifact: EvidenceArtifact, xKey: string, yKey: string, isDonut?: boolean }) {
   const format = artifact.metadata?.number_format || 'compact';
   const data = artifact.data;
 
@@ -18,11 +18,11 @@ export function PieChartWidget({ artifact, xKey, yKey }: { artifact: EvidenceArt
           nameKey={xKey}
           cx="50%"
           cy="50%"
-          innerRadius={60}
+          innerRadius={isDonut ? 80 : 0}
           outerRadius={120}
           fill="#8884d8"
           paddingAngle={2}
-          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+          label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
           labelLine={false}
         >
           {data.map((entry, index) => (

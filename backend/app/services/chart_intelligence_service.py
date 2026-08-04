@@ -5,6 +5,7 @@ Rule-based engine to select the best visualization based on intent and SQL resul
 """
 
 import logging
+import re
 from typing import Any
 
 from app.schemas.execution import SQLExecutionResponse
@@ -38,6 +39,20 @@ class ChartIntelligenceService:
                 col_types[col] = "categorical"
         return col_types
 
+    def _generate_title(self, question: str) -> str:
+        q = re.sub(r'^(show me|tell me|give me|what is|what are|list|show)\s+(the\s+)?', '', question, flags=re.IGNORECASE)
+        small_words = {'by', 'and', 'or', 'in', 'of', 'for', 'to', 'with', 'on', 'at', 'from', 'vs'}
+        words = q.split()
+        capitalized = []
+        for i, w in enumerate(words):
+            if i == 0 or w.lower() not in small_words:
+                # Handle cases like "10" not being capitalized, which is fine
+                capitalized.append(w.capitalize())
+            else:
+                capitalized.append(w.lower())
+        title = " ".join(capitalized)
+        return title if title else "Data Analysis"
+
     def select_chart(self, question: str, execution_result: SQLExecutionResponse) -> VisualizationRecommendation:
         if not execution_result.columns or execution_result.row_count == 0:
             return VisualizationRecommendation(
@@ -64,6 +79,27 @@ class ChartIntelligenceService:
         x_axis = None
         y_axis = None
         
+        q_lower = question.lower()
+        
+        has_pie_intent = any(kw in q_lower for kw in ["share", "percent", "proportion", "distribution"])
+        has_trend_intent = any(kw in q_lower for kw in ["trend", "history", "growth", "over time"])
+        has_top_intent = any(kw in q_lower for kw in ["top", "ranking", "worst", "bottom"])
+        has_geo_intent = any(kw in q_lower for kw in ["country", "city", "state", "region"])
+        
+        # Determine X and Y axes defaults
+        if categorical_cols:
+            x_axis = categorical_cols[0]
+        elif datetime_cols:
+            x_axis = datetime_cols[0]
+        elif numeric_cols:
+            x_axis = numeric_cols[0]
+            
+        if numeric_cols:
+            y_axis = numeric_cols[0]
+            # If x_axis is the first numeric, use the second for y if it exists
+            if x_axis == numeric_cols[0] and len(numeric_cols) > 1:
+                y_axis = numeric_cols[1]
+                
         # Rule evaluation (order matters for precedence)
         
         if row_count > 1000:
@@ -71,54 +107,41 @@ class ChartIntelligenceService:
             confidence = 1.0
             reason = "Dataset > 1000 rows is best presented as a data grid."
             
-        elif any(c.lower() in ["country", "city", "state", "region", "lat", "lon", "latitude", "longitude"] for c in categorical_cols):
+        elif has_geo_intent or any(c.lower() in ["country", "city", "state", "region", "lat", "lon"] for c in categorical_cols):
             chart_type = "map"
             confidence = 0.95
-            reason = "Geographic columns detected."
-            x_axis = categorical_cols[0]
-            if numeric_cols: y_axis = numeric_cols[0]
+            reason = "Geographic intent or columns detected."
             
-        elif len(categorical_cols) >= 2 and any(c.lower() in ["category", "group", "type", "department"] for c in categorical_cols) and len(numeric_cols) >= 1:
-            chart_type = "treemap"
-            confidence = 0.85
-            reason = "Multiple categories with metrics suggests hierarchical data."
-            x_axis = categorical_cols[0]
-            y_axis = numeric_cols[0]
-
         elif row_count == 1 and len(numeric_cols) == 1 and len(categorical_cols) == 0:
             chart_type = "kpi"
             confidence = 1.0
             reason = "Single numeric value detected."
-            y_axis = numeric_cols[0]
             
-        elif len(datetime_cols) >= 1:
-            x_axis = datetime_cols[0]
-            if len(numeric_cols) > 1:
-                chart_type = "multi-line"
-                confidence = 0.95
-                reason = "Date series with multiple metrics."
-                y_axis = numeric_cols[0]
-            elif len(numeric_cols) == 1:
-                chart_type = "line"
-                confidence = 0.95
-                reason = "Date series with a single metric."
-                y_axis = numeric_cols[0]
-            else:
-                chart_type = "table"
-                confidence = 0.8
-                reason = "Date series but no metrics."
-                
-        elif len(numeric_cols) == 2 and not categorical_cols:
+        elif len(numeric_cols) == 2 and not categorical_cols and not datetime_cols:
             chart_type = "scatter"
             confidence = 0.9
-            reason = "Two numeric distributions detected."
-            x_axis = numeric_cols[0]
-            y_axis = numeric_cols[1]
+            reason = "Two numeric distributions detected (vs comparison)."
+            
+        elif has_pie_intent and categorical_cols and numeric_cols:
+            chart_type = "pie" if "share" not in q_lower else "donut"
+            confidence = 0.95
+            reason = "User explicitly asked for share/distribution."
+            
+        elif (has_trend_intent or datetime_cols) and numeric_cols:
+            if has_trend_intent and "share" not in q_lower:
+                chart_type = "area"
+            else:
+                chart_type = "line" if len(numeric_cols) == 1 else "multi-line"
+            confidence = 0.95
+            reason = "Trend intent or date columns detected."
+            if datetime_cols: x_axis = datetime_cols[0]
+            
+        elif has_top_intent and categorical_cols and numeric_cols:
+            chart_type = "horizontal-bar"
+            confidence = 0.95
+            reason = "User asked for ranking/top N."
             
         elif len(categorical_cols) >= 1 and len(numeric_cols) >= 1:
-            x_axis = categorical_cols[0]
-            y_axis = numeric_cols[0]
-            
             max_label_length = 0
             if isinstance(rows[0], dict):
                 max_label_length = max([len(str(r.get(x_axis, ""))) for r in rows[:20]])
@@ -147,10 +170,12 @@ class ChartIntelligenceService:
             elif any(w in y_lower for w in ["rate", "percent", "ratio", "margin"]):
                 format_type = "percentage"
             
+        title = self._generate_title(question)
+            
         metadata = VisualizationMetadata(
             chart_type=chart_type,
-            title=f"Analysis of {y_axis or 'Data'} by {x_axis or 'Category'}" if x_axis and y_axis else "Data Analysis",
-            subtitle="Generated automatically",
+            title=title,
+            subtitle="Based on recent query execution",
             x_axis=x_axis,
             y_axis=y_axis,
             x_label=x_axis.replace("_", " ").title() if x_axis else None,
@@ -158,6 +183,8 @@ class ChartIntelligenceService:
             number_format=format_type,
             interactive=True
         )
+        
+        logger.info("[CHART_METADATA_PIPELINE] Selected Chart: %s | Reason: %s | Title: %s", chart_type, reason, title)
 
         return VisualizationRecommendation(
             chart=chart_type,

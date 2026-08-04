@@ -22,7 +22,7 @@ export function BarChartWidget({ artifact, xKey, yKey, isHorizontal = false }: {
           <XAxis type="number" tickFormatter={(val) => formatNumber(val, format)} />
           <YAxis type="category" dataKey={xKey} tickFormatter={formatTick} width={90} />
           <Tooltip content={<CustomTooltip formatType={format} />} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-          <Legend onClick={(e) => toggleSeries(e.dataKey)} wrapperStyle={{ paddingTop: '20px', cursor: 'pointer' }} />
+          <Legend onClick={(e: any) => toggleSeries(String(e.dataKey))} wrapperStyle={{ paddingTop: '20px', cursor: 'pointer' }} />
           {!hiddenSeries[yKey] && (
             <Bar dataKey={yKey} name={artifact.metadata?.y_label || yKey} fill="#2563eb" radius={[0, 4, 4, 0]} maxBarSize={40} />
           )}
@@ -38,7 +38,7 @@ export function BarChartWidget({ artifact, xKey, yKey, isHorizontal = false }: {
         <XAxis dataKey={xKey} tickFormatter={formatTick} minTickGap={30} angle={-45} textAnchor="end" height={60} />
         <YAxis tickFormatter={(val) => formatNumber(val, format)} />
         <Tooltip content={<CustomTooltip formatType={format} />} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-        <Legend onClick={(e) => toggleSeries(e.dataKey)} wrapperStyle={{ paddingTop: '20px', cursor: 'pointer' }} />
+        <Legend onClick={(e: any) => toggleSeries(String(e.dataKey))} wrapperStyle={{ paddingTop: '20px', cursor: 'pointer' }} />
         {!hiddenSeries[yKey] && (
           <Bar dataKey={yKey} name={artifact.metadata?.y_label || yKey} fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={60} />
         )}

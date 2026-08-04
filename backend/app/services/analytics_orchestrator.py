@@ -117,7 +117,10 @@ class AnalyticsOrchestratorService:
             vis_response = chart_intelligence_service.select_chart(
                 question=question, execution_result=execution_response
             )
-            logger.info("[%s] Visualization recommended: %s", request_id, vis_response.chart)
+            logger.info("[%s] Visualization recommended: %s | confidence: %s | reason: %s | row_count: %s", 
+                        request_id, vis_response.chart, vis_response.confidence, vis_response.reason, execution_response.row_count)
+            if vis_response.metadata:
+                logger.info("[%s] Metadata: title='%s', subtitle='%s'", request_id, vis_response.metadata.title, vis_response.metadata.subtitle)
         except Exception as exc:
             logger.exception("[%s] Workflow failed at visualization recommendation: %s | Type: %s", request_id, exc, type(exc).__name__)
             raise AnalyticsWorkflowError(f"Visualization recommendation failed: {exc}", stage="visualization", original_error=exc) from exc
