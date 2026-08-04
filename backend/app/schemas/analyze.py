@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from typing import Any
 from app.schemas.execution import SQLExecutionResponse
 from app.schemas.insight import BusinessInsightResponse
 from app.schemas.visualization import VisualizationRecommendation
@@ -58,6 +59,14 @@ class AnalyzeResponse(BaseModel):
     insight: BusinessInsightResponse | None = Field(
         default=None,
         description="The generated business insights (summary, key findings, etc)."
+    )
+    chart_metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Rich metadata describing the visualization properties for the frontend."
+    )
+    visualization_confidence: float | None = Field(
+        default=None,
+        description="Confidence score for the visualization selection."
     )
     confidence_score: str | None = Field(
         default=None,

@@ -13,7 +13,7 @@ import time
 from app.schemas.analyze import AnalyzeResponse
 from app.schemas.intent import Intent
 from app.services.business_insight_service import business_insight_service
-from app.services.chart_recommender_service import chart_recommender_service
+from app.services.chart_intelligence_service import chart_intelligence_service
 from app.services.intent_router import intent_router
 from app.services.schema_service import schema_service
 from app.services.sql_executor_service import sql_executor_service
@@ -113,9 +113,11 @@ class AnalyticsOrchestratorService:
         # 4. Visualization Recommendation
         # -----------------------------------------------------------------------
         try:
-            logger.info("[%s] Generating visualization...", request_id)
-            vis_response = chart_recommender_service.recommend(question, execution_response)
-            logger.info("[%s] Visualization selected", request_id)
+            logger.info("[%s] Recommending visualization...", request_id)
+            vis_response = chart_intelligence_service.select_chart(
+                question=question, execution_result=execution_response
+            )
+            logger.info("[%s] Visualization recommended: %s", request_id, vis_response.chart)
         except Exception as exc:
             logger.exception("[%s] Workflow failed at visualization recommendation: %s | Type: %s", request_id, exc, type(exc).__name__)
             raise AnalyticsWorkflowError(f"Visualization recommendation failed: {exc}", stage="visualization", original_error=exc) from exc
@@ -170,6 +172,8 @@ class AnalyticsOrchestratorService:
             execution=execution_response,
             visualization=vis_response,
             insight=insight_response,
+            chart_metadata=vis_response.metadata.model_dump() if vis_response and vis_response.metadata else None,
+            visualization_confidence=vis_response.confidence if vis_response else None,
             confidence_score=confidence_score,
         )
 

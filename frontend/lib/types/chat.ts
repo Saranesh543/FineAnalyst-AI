@@ -25,6 +25,7 @@ export interface EvidenceArtifact {
     suggested_questions?: string[];
   }
   confidenceScore?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface Turn {

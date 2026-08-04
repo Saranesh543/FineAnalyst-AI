@@ -106,9 +106,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           sql: analyzeRes.sql,
           rowCountTotal: analyzeRes.execution.row_count,
           rowSample: [],
-          title: analyzeRes.visualization.title || 'Result Data',
+          title: analyzeRes.visualization.title || analyzeRes.chart_metadata?.title || 'Result Data',
           insights: analyzeRes.insight,
-          confidenceScore: analyzeRes.confidence_score
+          confidenceScore: analyzeRes.confidence_score,
+          metadata: analyzeRes.chart_metadata
         });
       }
 

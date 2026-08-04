@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from typing import Any
 from app.schemas.execution import SQLExecutionResponse
 
 
@@ -28,6 +29,18 @@ class VisualizationRequest(BaseModel):
         ...,
         description="The result of the executed SQL query to be analyzed.",
     )
+
+class VisualizationMetadata(BaseModel):
+    """Rich metadata about the visualization for the frontend."""
+    chart_type: str = Field(description="The primary chart type (e.g., bar, line, kpi).")
+    title: str = Field(description="Generated title for the chart.")
+    subtitle: str | None = Field(default=None, description="Generated subtitle for the chart.")
+    x_axis: str | None = Field(default=None, description="Column mapped to X-axis.")
+    y_axis: str | None = Field(default=None, description="Column mapped to Y-axis.")
+    x_label: str | None = Field(default=None, description="Human readable label for X-axis.")
+    y_label: str | None = Field(default=None, description="Human readable label for Y-axis.")
+    number_format: str | None = Field(default=None, description="Recommended format (e.g., currency, compact, percentage).")
+    interactive: bool = Field(default=True, description="Whether the chart should support interactivity like brushing.")
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +69,10 @@ class VisualizationRecommendation(BaseModel):
     y_axis: str | None = Field(
         default=None,
         description="Recommended column for the Y-axis.",
+    )
+    metadata: VisualizationMetadata | None = Field(
+        default=None,
+        description="Rich metadata describing the visualization properties."
     )
 
 

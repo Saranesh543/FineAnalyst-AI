@@ -44,6 +44,8 @@ export interface AnalyzeResponse {
     recommendations: string[];
     suggested_questions?: string[];
   };
+  chart_metadata?: Record<string, any>;
+  visualization_confidence?: number;
   confidence_score?: string;
 }
 
