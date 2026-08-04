@@ -179,12 +179,20 @@ class SQLExecutorService:
                         rows.append(list(row))
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
+            db_path = str(self._engine.url)
             logger.exception(
-                "[%s] SQL execution failed | elapsed=%.1f ms | error=%s: %s",
+                "[%s] SQL execution failed\n"
+                "  SQL: %s\n"
+                "  DB Path: %s\n"
+                "  Elapsed: %.1f ms\n"
+                "  Error: %s: %s",
                 request_id,
+                validated_sql,
+                db_path,
                 elapsed_ms,
                 type(exc).__name__,
                 exc,
+                exc_info=True,
             )
             raise SQLExecutionFailedError(f"Database execution failed: {exc}") from exc
 

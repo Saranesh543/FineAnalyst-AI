@@ -67,10 +67,14 @@ class IntentRouterService:
             IntentResult containing the detected intent.
         """
         agent = self._get_agent()
-        logger.debug("Classifying intent for message: %r", message[:80])
-        result = await agent.run(message)
-        logger.info("Intent classified as: %s", result.output.intent)
-        return result.output
+        logger.debug("Classifying intent for message: %r", message[:100])
+        try:
+            result = await agent.run(message)
+            logger.info("Intent classified successfully. Validated Output: %s", result.output.model_dump_json())
+            return result.output
+        except Exception as exc:
+            logger.error("LLM Intent Router failed to validate intent output. Exception: %s | Type: %s", exc, type(exc).__name__)
+            raise
 
 # ---------------------------------------------------------------------------
 # Module-level singleton

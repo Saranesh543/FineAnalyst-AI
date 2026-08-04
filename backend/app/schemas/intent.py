@@ -8,8 +8,9 @@ the structured output of the IntentClassifier.
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -41,3 +42,10 @@ class IntentResult(BaseModel):
     )
 
     model_config = {"use_enum_values": True}
+
+    @field_validator("intent", mode="before")
+    @classmethod
+    def lowercase_intent(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.lower()
+        return v

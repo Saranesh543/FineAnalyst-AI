@@ -76,8 +76,10 @@ def create_schema(cursor):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             first_name TEXT NOT NULL,
             last_name TEXT NOT NULL,
+            company_name TEXT,
             email TEXT,
             segment TEXT,
+            country TEXT,
             region_id INTEGER,
             registration_date DATE,
             FOREIGN KEY(region_id) REFERENCES regions(id)
@@ -184,12 +186,14 @@ def generate_data(cursor):
         customers_data.append((
             fake.first_name(),
             fake.last_name(),
+            fake.company(),
             fake.email(),
             random.choice(segments),
+            fake.country(),
             random.randint(1, 25), # region_id
             reg_date
         ))
-    cursor.executemany("INSERT INTO customers (first_name, last_name, email, segment, region_id, registration_date) VALUES (?, ?, ?, ?, ?, ?)", customers_data)
+    cursor.executemany("INSERT INTO customers (first_name, last_name, company_name, email, segment, country, region_id, registration_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", customers_data)
     
     # Orders (50,000) & Order Items
     print("Generating Orders and Order Items...")
