@@ -59,11 +59,11 @@ class TestChartRecommenderService:
         assert res.confidence == 1.0
 
     def test_large_dataset_recommends_table(self, service):
-        """Dataset > 1000 rows always recommends a table."""
+        """Dataset > 1000 rows always recommends a data grid."""
         # Provide only 1 row to avoid huge object, but spoof row_count
         data = _make_exec_response(["id"], [[1]], row_count=1001)
         res = service.recommend("trends", data)
-        assert res.chart == "table"
+        assert res.chart == "data_grid"
         assert res.confidence == 1.0
 
     def test_time_series_line_with_explicit_datetime(self, service):
@@ -114,7 +114,7 @@ class TestChartRecommenderService:
         """Histogram recommended for single numeric column with distribution intent."""
         data = _make_exec_response(
             ["age"], 
-            [[25]]
+            [[25], [30], [22]]
         )
         res = service.recommend("show me the age distribution", data)
         assert res.chart == "histogram"
@@ -157,8 +157,8 @@ class TestChartRecommenderService:
     def test_fallback_table_recommendation(self, service):
         """Table recommended when nothing else matches (e.g. all categorical)."""
         data = _make_exec_response(
-            ["name", "city"], 
-            [["Alice", "Paris"]]
+            ["first_name", "last_name"], 
+            [["Alice", "Smith"]]
         )
         res = service.recommend("list of users", data)
         assert res.chart == "table"

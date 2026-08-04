@@ -88,15 +88,21 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
             # unless we explicitly unwrap Pydantic ValidationErrors.
             pass
             
-        # If the original error was a model/LLM failure, map it to 502 Bad Gateway
+        # Return the EXACT error and stack trace as requested by the user
+        import traceback
+        full_trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        
+        # Unpack the original error to show it in the message
+        original_msg = str(exc.original_error) if exc.original_error else str(exc)
+        
         if exc.original_error and isinstance(exc.original_error, pydantic_ai.exceptions.UnexpectedModelBehavior):
             status_code = status.HTTP_502_BAD_GATEWAY
             
         return JSONResponse(
             status_code=status_code,
             content=AnalyzeErrorResponse(
-                error="llm_provider_error" if status_code == status.HTTP_502_BAD_GATEWAY else "workflow_failed",
-                message=f"Analytics workflow failed during the {exc.stage} stage." + (f" AI Provider Error: {exc.original_error}" if status_code == status.HTTP_502_BAD_GATEWAY else ""),
+                error="workflow_failed",
+                message=f"Analytics workflow failed during the {exc.stage} stage. Original Error: {original_msg}\n\nTraceback:\n{full_trace}",
                 stage=exc.stage,
             ).model_dump(mode="json"),
         )

@@ -67,9 +67,9 @@ class ChartRecommenderService:
             return self._build_recommendation(
                 request_id,
                 t_start,
-                chart="table",
+                chart="data_grid",
                 confidence=1.0,
-                reason="Large datasets (>1000 rows) are best presented as a table.",
+                reason="Large datasets (>1000 rows) are best presented as an interactive data grid.",
             )
 
         # --- Rule 2: Empty data (but has columns) ---
@@ -92,7 +92,33 @@ class ChartRecommenderService:
 
         q_lower = question.lower()
 
-        # --- Rule 3: Time-series (Line) ---
+        # --- Rule 3.0: Single Numeric Value (KPI) ---
+        if row_count == 1 and len(numeric_cols) == 1 and len(categorical_cols) == 0:
+            return self._build_recommendation(
+                request_id,
+                t_start,
+                chart="kpi",
+                confidence=1.0,
+                reason="A single numeric value is best displayed as a KPI card.",
+                y_axis=numeric_cols[0],
+            )
+            
+        # --- Rule 3.1: Geographic Data (Map) ---
+        geo_keywords = {"country", "city", "state", "region", "lat", "lon", "latitude", "longitude"}
+        has_geo_cols = any(col.lower() in geo_keywords for col in categorical_cols)
+        
+        if has_geo_cols:
+            return self._build_recommendation(
+                request_id,
+                t_start,
+                chart="map",
+                confidence=0.85,
+                reason="Geographic data detected. Best visualized on a map.",
+                x_axis=categorical_cols[0],
+                y_axis=numeric_cols[0] if numeric_cols else None,
+            )
+
+        # --- Rule 3.2: Time-series (Line) ---
         # Detect time intent from question or presence of datetime columns
         time_keywords = {"trend", "over time", "history", "monthly", "yearly", "daily"}
         has_time_intent = any(kw in q_lower for kw in time_keywords)

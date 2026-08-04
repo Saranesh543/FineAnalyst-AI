@@ -16,6 +16,12 @@ export interface AnalyzeRequest {
   question: string;
 }
 
+export interface KPICard {
+  label: string;
+  value: string | number;
+  format: string;
+}
+
 export interface AnalyzeResponse {
   question: string;
   sql: string;
@@ -32,10 +38,13 @@ export interface AnalyzeResponse {
   };
   insight: {
     summary: string;
+    kpi_cards: KPICard[];
     key_findings: string[];
     anomalies: string[];
     recommendations: string[];
+    suggested_questions?: string[];
   };
+  confidence_score?: string;
 }
 
 export interface SchemaResponse {

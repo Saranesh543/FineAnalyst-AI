@@ -59,6 +59,10 @@ class AnalyzeResponse(BaseModel):
         default=None,
         description="The generated business insights (summary, key findings, etc)."
     )
+    confidence_score: str | None = Field(
+        default=None,
+        description="Overall analytics confidence (High, Medium, Low)."
+    )
 
 
 # ---------------------------------------------------------------------------

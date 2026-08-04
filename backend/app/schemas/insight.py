@@ -40,23 +40,40 @@ class BusinessInsightRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class KPICard(BaseModel):
+    """A Key Performance Indicator derived from the data."""
+    label: str = Field(description="The title of the KPI (e.g., 'Total Revenue').")
+    value: str | float = Field(description="The numeric or string value of the KPI.")
+    format: str = Field(
+        description="The formatting type: 'currency', 'percentage', 'decimal', 'compact', or 'text'."
+    )
+
+
 class BusinessInsightResponse(BaseModel):
     """Structured insights generated from the data."""
 
     summary: str = Field(
-        description="Executive summary of the data (2-4 sentences)."
+        description="Executive summary of the data."
+    )
+    kpi_cards: list[KPICard] = Field(
+        default_factory=list,
+        description="List of KPI cards derived from the data."
     )
     key_findings: list[str] = Field(
         default_factory=list,
-        description="Key findings derived from the data (3-5 bullet points)."
+        description="Key findings derived from the data (3-6 concise bullet points)."
     )
     anomalies: list[str] = Field(
         default_factory=list,
-        description="Anomalies detected in the data (if any)."
+        description="Anomalies, outliers, or significant differences detected in the data (if any)."
     )
     recommendations: list[str] = Field(
         default_factory=list,
-        description="Recommended next questions to ask based on this data (2-3)."
+        description="Actionable business recommendations derived from this data (3-5 bullet points)."
+    )
+    suggested_questions: list[str] = Field(
+        default_factory=list,
+        description="Intelligent follow-up analytical questions (3-5 bullet points)."
     )
 
 

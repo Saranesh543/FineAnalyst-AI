@@ -30,15 +30,23 @@ class BusinessInsightError(Exception):
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """
-You are FineAnalyst AI, a Business Intelligence engine.
+You are FineAnalyst AI, a professional Business Intelligence engine.
 Your task is to analyze raw database results and generate an executive summary.
 
-Rules:
-1. NEVER fabricate or hallucinate numbers. Use ONLY the data provided.
-2. Provide a 2-4 sentence executive summary.
-3. Provide 3-5 key findings (bullet points).
-4. Identify any obvious anomalies or outliers in the data. If none, leave empty.
-5. Recommend 2-3 logical follow-up questions the user should ask next.
+CRITICAL DATA BINDING RULES:
+1. NEVER fabricate or hallucinate numbers, values, companies, countries, products, or ANY categorical data.
+2. You MUST strictly use ONLY the exact names, entities, and numerical values present in the provided "--- DATA EXECUTED ---" rows.
+3. If the SQL returns "Smith Ltd", your summary MUST say "Smith Ltd" exactly.
+4. If a company, country, or entity is NOT in the rows, DO NOT mention it.
+5. If the data is empty or returns no rows, you MUST explicitly state that no data was returned instead of fabricating an answer.
+
+OUTPUT RULES:
+1. Provide a concise executive summary based STRICTLY on the rows. MAX 2 SENTENCES. NEVER mention "assumptions", "sample database", "hypothetical data", or "imaginary context". Just state the facts.
+2. Generate 3-6 key findings as concise bullet points. You MUST identify highest/lowest values, top/bottom performers, growth/decline, or significant differences if applicable.
+3. Generate KPI Cards from the overall data. Format them properly (e.g., format="currency", "percentage", "decimal", "compact", or "text"). Do not invent KPIs not supported by the data.
+4. Identify any obvious anomalies or outliers in the provided data. If none, leave empty.
+5. Recommend 3-5 actionable business recommendations derived ONLY from this data. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
+6. Generate 3-5 intelligent suggested follow-up questions (e.g., "Show monthly revenue", "Compare by country", "Revenue trend"). NEVER copy recommendations into suggested questions.
 """
 
 
@@ -130,11 +138,16 @@ class BusinessInsightService:
             logger.info("[%s] Insight generated for empty data | elapsed=%.1f ms", request_id, elapsed_ms)
             return BusinessInsightResponse(
                 summary="The query returned no data to analyze.",
+                kpi_cards=[],
                 key_findings=["No records matched the criteria for this question."],
                 anomalies=[],
                 recommendations=[
                     "Check if the date range or filters applied are correct.",
                     "Try broadening the search criteria."
+                ],
+                suggested_questions=[
+                    "Show total revenue",
+                    "List all customers"
                 ]
             )
 
@@ -145,13 +158,47 @@ class BusinessInsightService:
             insight = result.output
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t_start) * 1000
+            
+            raw_response = "Unknown"
+            validation_errors = "Unknown"
+            
+            from pydantic_ai.exceptions import UnexpectedModelBehavior
+            from pydantic import ValidationError
+            if isinstance(exc, UnexpectedModelBehavior):
+                # Pydantic-AI raises this when the model returns invalid JSON or fails validation.
+                if hasattr(exc, "cause") and isinstance(exc.cause, ValidationError):
+                    validation_errors = str(exc.cause)
+                elif hasattr(exc, "__cause__") and isinstance(exc.__cause__, ValidationError):
+                    validation_errors = str(exc.__cause__)
+                else:
+                    validation_errors = str(exc)
+                logger.error(f"[{request_id}] RAW LLM VALIDATION ERRORS:\n{validation_errors}")
+                
             logger.exception(
                 "[%s] Insight generation failed | elapsed=%.1f ms | error=%s",
                 request_id,
                 elapsed_ms,
                 exc,
             )
-            raise BusinessInsightError(f"Failed to generate insight: {exc}") from exc
+            
+            # Print EXACT stack trace, SQL results, raw LLM for the user (in console only)
+            print("--- ANALYTICS PIPELINE DEBUG ---")
+            print(f"STAGE: insight")
+            print(f"SQL RESULTS SENT TO LLM:\n{execution_result.model_dump_json(indent=2)}")
+            print(f"VALIDATION ERRORS:\n{validation_errors}")
+            import traceback
+            print(f"STACK TRACE:\n{''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}")
+            print("--------------------------------")
+            
+            # Graceful fallback so the pipeline doesn't fail
+            insight = BusinessInsightResponse(
+                summary=f"Data was successfully retrieved ({execution_result.row_count} rows), but AI insights could not be generated due to a temporary model formatting issue.",
+                kpi_cards=[],
+                key_findings=["AI analysis is temporarily unavailable."],
+                anomalies=[],
+                recommendations=["Review the raw data table below for insights."],
+                suggested_questions=["Retry query", "Show total revenue"]
+            )
 
         elapsed_ms = (time.perf_counter() - t_start) * 1000
         logger.info(

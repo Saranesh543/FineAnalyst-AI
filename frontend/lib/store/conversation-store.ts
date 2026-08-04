@@ -102,11 +102,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           id: uuidv4(),
           kind: 'chart', // or table depending on logic, let's say chart if chart_type isn't 'table'
           chartType: analyzeRes.visualization.chart_type as any,
-          data: analyzeRes.execution.rows, // Wait, rows usually objects or arrays? Backend schema says `rows: any[][]`. Evidence schema says `Record<string, any>[]`
+          data: [], // populated below
           sql: analyzeRes.sql,
           rowCountTotal: analyzeRes.execution.row_count,
           rowSample: [],
-          title: analyzeRes.visualization.title || 'Result Data'
+          title: analyzeRes.visualization.title || 'Result Data',
+          insights: analyzeRes.insight,
+          confidenceScore: analyzeRes.confidence_score
         });
       }
 
@@ -126,9 +128,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       updateTurn(assistantTurnId, t => ({
         ...t,
         status: 'complete',
-        answerText: chatRes.message || analyzeRes.insight?.summary || 'Analysis complete.',
+        answerText: analyzeRes.insight?.summary || 'Analysis complete.',
         evidence,
-        followUpSuggestions: analyzeRes.insight?.recommendations || []
+        followUpSuggestions: analyzeRes.insight?.suggested_questions || analyzeRes.insight?.recommendations || []
       }));
 
     } catch (error: any) {

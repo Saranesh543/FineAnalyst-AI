@@ -18,15 +18,16 @@ from app.services.intent_router import intent_router
 from app.services.schema_service import schema_service
 from app.services.sql_executor_service import sql_executor_service
 from app.services.sql_generator_service import sql_generator_service
+from app.utils.exceptions import AppException
 
 logger = logging.getLogger(__name__)
 
 
-class AnalyticsWorkflowError(Exception):
+class AnalyticsWorkflowError(AppException):
     """Raised when any stage of the analytics workflow fails."""
     
     def __init__(self, message: str, stage: str, original_error: Exception | None = None):
-        super().__init__(message)
+        super().__init__(message=message, status_code=400)
         self.stage = stage
         self.original_error = original_error
 
@@ -144,6 +145,24 @@ class AnalyticsOrchestratorService:
             elapsed_ms,
         )
 
+        # Calculate dynamic confidence score
+        base_confidence = vis_response.confidence if vis_response else 0.8
+        
+        # Penalize confidence if insight generation fell back to the error object
+        if insight_response and insight_response.key_findings == ["AI analysis is temporarily unavailable."]:
+            base_confidence -= 0.3
+            
+        # Penalize if no rows
+        if execution_response.row_count == 0:
+            base_confidence -= 0.5
+            
+        if base_confidence >= 0.85:
+            confidence_score = "High"
+        elif base_confidence >= 0.6:
+            confidence_score = "Medium"
+        else:
+            confidence_score = "Low"
+
         return AnalyzeResponse(
             question=question,
             intent=Intent.DATABASE.value,
@@ -151,6 +170,7 @@ class AnalyticsOrchestratorService:
             execution=execution_response,
             visualization=vis_response,
             insight=insight_response,
+            confidence_score=confidence_score,
         )
 
 
