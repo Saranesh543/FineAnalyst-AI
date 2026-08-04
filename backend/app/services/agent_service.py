@@ -1,0 +1,217 @@
+"""
+Agent Service Module
+
+Provides AgentService — the single entry-point for all agent interactions.
+Responsibilities:
+  - Manage per-session conversation history (in-memory, no DB persistence).
+  - Invoke the PydanticAI agent with the appropriate message history.
+  - Translate PydanticAI results into structured AgentResponse objects.
+  - Emit structured log entries for every request and response.
+  - Handle AI provider / network errors gracefully.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+import uuid
+from collections import defaultdict
+from typing import TYPE_CHECKING
+
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage
+
+from app.agents.fineanalyst_agent import get_agent
+from app.schemas.agent import (
+    AgentErrorResponse,
+    AgentResponse,
+    AgentStatus,
+    UsageInfo,
+)
+
+if TYPE_CHECKING:
+    pass  # reserved for future type-only imports
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-memory conversation store
+# ---------------------------------------------------------------------------
+# Maps session_id -> list of pydantic_ai ModelMessage objects.
+# This store lives in process memory only; it resets on server restart.
+# A future iteration should replace this with Redis / a database backend.
+_SESSION_HISTORY: dict[str, list[ModelMessage]] = defaultdict(list)
+
+# Safety cap — prevent runaway context growth.
+_MAX_HISTORY_MESSAGES: int = 100
+
+
+class AgentService:
+    """
+    Stateless service class that orchestrates calls to the FineAnalyst agent.
+
+    A single shared instance is created at module level and injected into
+    FastAPI route handlers via dependency injection.
+
+    The underlying PydanticAI ``Agent`` is resolved lazily on the first call
+    to ``process_message`` so that importing this module never fails due to a
+    missing API key.
+    """
+
+    def __init__(self) -> None:
+        logger.debug("AgentService initialised.")
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def process_message(
+        self,
+        user_message: str,
+        session_id: str | None = None,
+    ) -> AgentResponse | AgentErrorResponse:
+        """
+        Send *user_message* to the agent and return a structured response.
+
+        Args:
+            user_message: The raw text from the user.
+            session_id:   Optional identifier for conversation continuity.
+                          When provided, message history is preserved across
+                          calls within the same session.
+
+        Returns:
+            AgentResponse on success, AgentErrorResponse on failure.
+        """
+        request_id = str(uuid.uuid4())
+        t_start = time.perf_counter()
+
+        logger.info(
+            "[request_id=%s] Received message | session_id=%s | length=%d chars",
+            request_id,
+            session_id,
+            len(user_message),
+        )
+
+        # Retrieve existing history for this session (may be empty list).
+        history: list[ModelMessage] = (
+            _SESSION_HISTORY[session_id] if session_id else []
+        )
+
+        try:
+            agent = get_agent()  # lazy — raises ValueError if key is missing
+            result = await agent.run(
+                user_message,
+                message_history=history if history else None,
+            )
+
+            # Persist new messages back into the session store.
+            if session_id:
+                updated = list(result.all_messages())
+                # Trim if we've exceeded the safety cap.
+                if len(updated) > _MAX_HISTORY_MESSAGES:
+                    updated = updated[-_MAX_HISTORY_MESSAGES:]
+                _SESSION_HISTORY[session_id] = updated
+
+            elapsed_ms = (time.perf_counter() - t_start) * 1_000
+            # In PydanticAI 2.22, `usage` is a property (RunUsage dataclass),
+            # not a callable method. Field names also changed from the older
+            # request_tokens/response_tokens to input_tokens/output_tokens.
+            _raw_usage = result.usage
+            usage_info = UsageInfo(
+                requests=getattr(_raw_usage, "requests", 0),
+                request_tokens=getattr(_raw_usage, "input_tokens", None),
+                response_tokens=getattr(_raw_usage, "output_tokens", None),
+                total_tokens=getattr(_raw_usage, "total_tokens", None),
+            )
+
+            logger.info(
+                "[request_id=%s] Agent response received | elapsed=%.1f ms | "
+                "tokens_total=%s",
+                request_id,
+                elapsed_ms,
+                usage_info.total_tokens,
+            )
+
+            return AgentResponse(
+                status=AgentStatus.SUCCESS,
+                session_id=session_id,
+                message=result.output,
+                usage=usage_info,
+            )
+
+        except Exception as exc:  # noqa: BLE001 — intentional broad catch
+            elapsed_ms = (time.perf_counter() - t_start) * 1_000
+            error_code = type(exc).__name__
+
+            logger.exception(
+                "[request_id=%s] Agent run failed | elapsed=%.1f ms | "
+                "error=%s: %s",
+                request_id,
+                elapsed_ms,
+                error_code,
+                exc,
+            )
+
+            return AgentErrorResponse(
+                session_id=session_id,
+                error_code=error_code,
+                message=self._humanise_error(exc),
+            )
+
+    # ------------------------------------------------------------------
+    # Session Management Helpers
+    # ------------------------------------------------------------------
+
+    def clear_session(self, session_id: str) -> bool:
+        """
+        Clear the conversation history for a given session.
+
+        Returns True if a session existed and was removed, False otherwise.
+        """
+        if session_id in _SESSION_HISTORY:
+            del _SESSION_HISTORY[session_id]
+            logger.info("Session history cleared for session_id=%s", session_id)
+            return True
+        return False
+
+    def session_message_count(self, session_id: str) -> int:
+        """Return the number of messages stored for the given session."""
+        return len(_SESSION_HISTORY.get(session_id, []))
+
+    # ------------------------------------------------------------------
+    # Private Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _humanise_error(exc: Exception) -> str:
+        """
+        Convert a raw exception into a user-friendly error string.
+
+        Specific HTTP/provider error classes can be matched here in future
+        iterations to provide more actionable messages.
+        """
+        exc_type = type(exc).__name__
+
+        # Common network / API error patterns
+        if "api" in exc_type.lower() or "groq" in exc_type.lower() or "openai" in exc_type.lower():
+            return (
+                "The AI model returned an error. "
+                "Please check your API key and try again."
+            )
+        if "timeout" in exc_type.lower() or "connect" in exc_type.lower():
+            return (
+                "The request timed out while connecting to the AI service. "
+                "Please try again in a moment."
+            )
+
+        # Generic fallback
+        return (
+            "An unexpected error occurred while processing your request. "
+            "Please try again."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton — shared across all FastAPI requests.
+# ---------------------------------------------------------------------------
+agent_service = AgentService()

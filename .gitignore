@@ -1,0 +1,32 @@
+# Node
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Database
+*.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.*
+
+# Archives
+*.zip
+*.rar
+*.7z
+
+# OS
+.DS_Store
+Thumbs.db

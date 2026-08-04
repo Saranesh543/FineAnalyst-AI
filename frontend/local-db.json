@@ -1,0 +1,15 @@
+{
+  "users": [
+    {
+      "id": "6ce099ed-9d55-418c-b8cf-f69225fdb3c5",
+      "email": "guest-1785766448676",
+      "password": "$2b$10$3Kgyi2ofTlx.kT/dS7Rgfuwkuzjw6vbo8lduzWVpDOcXmvUNoH9va"
+    }
+  ],
+  "chats": [],
+  "messages": [],
+  "documents": [],
+  "suggestions": [],
+  "streams": [],
+  "votes": []
+}
