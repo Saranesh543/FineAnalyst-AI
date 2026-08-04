@@ -16,8 +16,8 @@ export function BarChartWidget({ artifact, xKey, yKey, isHorizontal = false }: {
 
   if (isHorizontal) {
     return (
-      <ResponsiveContainer width="100%" height={Math.max(350, data.length * 30)}>
-        <BarChart data={data} layout="vertical" margin={{ top: 20, right: 30, left: 100, bottom: 20 }}>
+      <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={data} layout="vertical" margin={{ top: 20, right: 30, left: 80, bottom: 20 }}>
           <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} opacity={0.5} />
           <XAxis type="number" tickFormatter={(val) => formatNumber(val, format)} />
           <YAxis type="category" dataKey={xKey} tickFormatter={formatTick} width={90} />
@@ -32,8 +32,8 @@ export function BarChartWidget({ artifact, xKey, yKey, isHorizontal = false }: {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={400}>
-      <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={data} margin={{ top: 20, right: 30, left: 10, bottom: 40 }}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.5} />
         <XAxis dataKey={xKey} tickFormatter={formatTick} minTickGap={30} angle={-45} textAnchor="end" height={60} />
         <YAxis tickFormatter={(val) => formatNumber(val, format)} />

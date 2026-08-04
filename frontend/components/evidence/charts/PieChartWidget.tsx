@@ -8,7 +8,7 @@ export function PieChartWidget({ artifact, xKey, yKey, isDonut = false }: { arti
   const data = artifact.data;
 
   return (
-    <ResponsiveContainer width="100%" height={400}>
+    <ResponsiveContainer width="100%" height="100%">
       <PieChart margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
         <Tooltip content={<CustomTooltip formatType={format} />} />
         <Legend wrapperStyle={{ paddingTop: '20px' }} />
@@ -22,8 +22,8 @@ export function PieChartWidget({ artifact, xKey, yKey, isDonut = false }: { arti
           outerRadius={120}
           fill="#8884d8"
           paddingAngle={2}
-          label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
-          labelLine={false}
+          label={data.length <= 8 ? ({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%` : false}
+          labelLine={data.length <= 8}
         >
           {data.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

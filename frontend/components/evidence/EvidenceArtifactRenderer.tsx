@@ -3,10 +3,9 @@
 import React, { useRef, useState } from 'react';
 import { EvidenceArtifact } from "@/lib/types/chat";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Database, Copy, Download, Maximize2, X, Check } from "lucide-react";
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import * as htmlToImage from 'html-to-image';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Loader2 } from "lucide-react";
 
 import { KpiCard } from './charts/KpiCard';
 import { BarChartWidget } from './charts/BarChartWidget';
@@ -21,6 +20,7 @@ import { DataGridWidget } from './charts/DataGridWidget';
 function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const [copiedSQL, setCopiedSQL] = useState(false);
+  const [downloadingPNG, setDownloadingPNG] = useState(false);
 
   let xKey = artifact.metadata?.x_axis || artifact.encoding?.x;
   let yKey = artifact.metadata?.y_axis || artifact.encoding?.y;
@@ -36,15 +36,17 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
   const chartType = artifact.metadata?.chart_type || artifact.chartType || 'table';
   
   // Instrument logging as requested
-  console.log("Chart Metadata Debug:", {
-    chart_type: chartType,
-    title: artifact.metadata?.title,
-    subtitle: artifact.metadata?.subtitle,
-    x_axis: xKey,
-    y_axis: yKey,
-    number_format: artifact.metadata?.number_format,
-    confidence: artifact.metadata?.confidence || artifact.confidenceScore
-  });
+  if (process.env.NODE_ENV === 'development') {
+    console.log("Chart Metadata Debug:", {
+      chart_type: chartType,
+      title: artifact.metadata?.title,
+      subtitle: artifact.metadata?.subtitle,
+      x_axis: xKey,
+      y_axis: yKey,
+      number_format: artifact.metadata?.number_format,
+      confidence: artifact.metadata?.confidence || artifact.confidenceScore
+    });
+  }
 
   const downloadCSV = () => {
     if (!artifact.data || artifact.data.length === 0) return;
@@ -64,6 +66,7 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
 
   const downloadPNG = () => {
     if (chartRef.current) {
+      setDownloadingPNG(true);
       htmlToImage.toPng(chartRef.current, { backgroundColor: '#ffffff' })
         .then(function (dataUrl) {
           const a = document.createElement('a');
@@ -73,7 +76,8 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
         })
         .catch(function (error) {
           console.error('oops, something went wrong!', error);
-        });
+        })
+        .finally(() => setDownloadingPNG(false));
     }
   };
 
@@ -138,119 +142,158 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
             )}
           </div>
           <div className="flex items-center space-x-2">
-            
-            {/* SQL Dialog */}
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs" title="View SQL">
-                  <Copy className="h-3 w-3 mr-1" /> SQL
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>Generated SQL</DialogTitle>
-                </DialogHeader>
-                <div className="relative">
-                  <pre className="p-4 bg-muted rounded-md overflow-x-auto text-sm text-foreground">
-                    <code>{artifact.sql}</code>
-                  </pre>
-                  <Button variant="secondary" size="sm" className="absolute top-2 right-2" onClick={copySQL}>
-                    {copiedSQL ? <Check className="h-4 w-4 mr-1 text-green-600" /> : <Copy className="h-4 w-4 mr-1" />}
-                    {copiedSQL ? 'Copied' : 'Copy'}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <TooltipProvider>
+              
+              {/* SQL Dialog */}
+              <Dialog>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 text-xs font-semibold">
+                        <span className="mr-1">📋</span> SQL
+                      </Button>
+                    </DialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>View source query</TooltipContent>
+                </Tooltip>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Generated SQL</DialogTitle>
+                  </DialogHeader>
+                  <div className="relative">
+                    <pre className="p-4 bg-muted rounded-md overflow-x-auto text-sm text-foreground">
+                      <code>{artifact.sql}</code>
+                    </pre>
+                    <Button variant="secondary" size="sm" className="absolute top-2 right-2" onClick={copySQL}>
+                      {copiedSQL ? <Check className="h-4 w-4 mr-1 text-green-600" /> : <Copy className="h-4 w-4 mr-1" />}
+                      {copiedSQL ? 'Copied' : 'Copy'}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
-            {/* CSV Download */}
-            <Button variant="outline" size="sm" className="h-8 text-xs" title="Download CSV" onClick={downloadCSV}>
-              <Download className="h-3 w-3 mr-1" /> CSV
-            </Button>
-            
-            {/* PNG Download */}
-            <Button variant="outline" size="sm" className="h-8 text-xs" title="Download PNG" onClick={downloadPNG}>
-              <Download className="h-3 w-3 mr-1" /> PNG
-            </Button>
-            
-            {/* Expand Dialog */}
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs" title="Expand">
-                  <Maximize2 className="h-3 w-3 mr-1" /> Expand
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-[90vw] w-[1200px] max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
+              {/* CSV Download */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs font-semibold" onClick={downloadCSV} disabled={!artifact.data?.length}>
+                    <span className="mr-1">⬇</span> CSV
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Download raw data</TooltipContent>
+              </Tooltip>
+              
+              {/* PNG Download */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs font-semibold" onClick={downloadPNG} disabled={downloadingPNG || !artifact.data?.length}>
+                    {downloadingPNG ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <span className="mr-1">🖼</span>} PNG
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Download chart image</TooltipContent>
+              </Tooltip>
+              
+              {/* Expand Dialog */}
+              <Dialog>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 text-xs font-semibold">
+                        <span className="mr-1">⛶</span> Expand
+                      </Button>
+                    </DialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Open fullscreen report</TooltipContent>
+                </Tooltip>
+                <DialogContent className="max-w-[95vw] w-[1400px] max-h-[95vh] overflow-y-auto bg-gray-50/50">
+                <DialogHeader className="bg-white p-6 border-b rounded-t-lg shadow-sm">
                   <div className="flex items-center space-x-2">
                     <Database className="h-6 w-6 text-primary" />
-                    <DialogTitle className="text-xl">{artifact.metadata?.title || artifact.title}</DialogTitle>
+                    <DialogTitle className="text-2xl font-bold">{artifact.metadata?.title || artifact.title}</DialogTitle>
                   </div>
-                  {artifact.metadata?.subtitle && (
-                    <p className="text-sm text-muted-foreground mt-1 ml-8">{artifact.metadata.subtitle}</p>
-                  )}
                 </DialogHeader>
                 
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-4">
-                  <div className="lg:col-span-3 space-y-6">
-                    <div className="bg-white p-6 rounded-lg border shadow-sm h-[500px]">
+                <div className="p-6 space-y-6">
+                  {/* KPIs */}
+                  {artifact.insights?.kpi_cards?.length ? (
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      {artifact.insights.kpi_cards.map((kpi, idx) => (
+                        <div key={idx} className="bg-white p-4 rounded-lg border shadow-sm">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase">{kpi.label}</p>
+                          <p className="text-3xl font-bold text-primary mt-2">{kpi.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {/* Chart (70%) and Insights (30%) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 bg-white p-6 rounded-lg border shadow-sm h-[500px]">
                       {renderChart()}
                     </div>
-                    {/* Optionally DataGrid below chart in expanded view if not a datagrid already */}
-                    {chartType !== 'data_grid' && chartType !== 'table' && (
-                      <div className="mt-6">
-                        <h3 className="font-semibold mb-2">Raw Data</h3>
+                    
+                    <div className="lg:col-span-1 bg-white p-6 rounded-lg border shadow-sm space-y-6 overflow-y-auto h-[500px]">
+                      {artifact.confidenceScore && (
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-semibold">AI Confidence:</span>
+                            <span className="text-xs font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full flex items-center">
+                              <Check className="h-3 w-3 mr-1" /> {artifact.confidenceScore}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {artifact.insights?.key_findings?.length ? (
+                        <div className="space-y-3">
+                          <h3 className="font-bold text-lg border-b pb-2">Key Insights</h3>
+                          <ul className="space-y-3 text-sm">
+                            {artifact.insights.key_findings.map((f, i) => (
+                              <li key={i} className="flex items-start text-gray-700">
+                                <span className="mr-2 text-primary font-bold">•</span> {f}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Recommendations */}
+                  {artifact.insights?.recommendations?.length ? (
+                    <div className="bg-white p-6 rounded-lg border shadow-sm space-y-3">
+                      <h3 className="font-bold text-lg border-b pb-2">Business Recommendations</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        {artifact.insights.recommendations.map((r, i) => (
+                          <div key={i} className="flex items-start bg-blue-50/50 p-4 rounded-md border border-blue-100">
+                            <span className="mr-2 text-blue-600 font-bold">•</span> 
+                            <span className="text-sm text-gray-800">{r}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* SQL */}
+                  <div className="bg-white p-6 rounded-lg border shadow-sm space-y-3">
+                     <h3 className="font-bold text-lg border-b pb-2">Source Query</h3>
+                     <pre className="p-4 bg-muted/50 rounded-md overflow-x-auto text-sm text-foreground">
+                       <code>{artifact.sql}</code>
+                     </pre>
+                  </div>
+
+                  {/* Raw Data */}
+                  {chartType !== 'data_grid' && chartType !== 'table' && (
+                    <div className="bg-white p-6 rounded-lg border shadow-sm space-y-3">
+                      <h3 className="font-bold text-lg border-b pb-2">Raw Data</h3>
+                      <div className="h-[400px]">
                         <DataGridWidget artifact={artifact} />
                       </div>
-                    )}
-                  </div>
-                  <div className="lg:col-span-1 space-y-6">
-                    {artifact.insights?.kpi_cards?.map((kpi, idx) => (
-                      <div key={idx} className="p-4 bg-muted/10 rounded-lg border">
-                        <p className="text-sm text-muted-foreground uppercase">{kpi.label}</p>
-                        <p className="text-3xl font-bold text-primary mt-1">{kpi.value}</p>
-                      </div>
-                    ))}
-                    
-                    {artifact.insights?.key_findings?.length ? (
-                      <div className="space-y-2">
-                        <h3 className="font-semibold border-b pb-2">Key Findings</h3>
-                        <ul className="space-y-2 text-sm">
-                          {artifact.insights.key_findings.map((f, i) => (
-                            <li key={i} className="flex items-start">
-                              <span className="mr-2 text-primary">•</span> {f}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                    
-                    {artifact.insights?.recommendations?.length ? (
-                      <div className="space-y-2 mt-4">
-                        <h3 className="font-semibold border-b pb-2">Recommendations</h3>
-                        <ul className="space-y-2 text-sm">
-                          {artifact.insights.recommendations.map((r, i) => (
-                            <li key={i} className="flex items-start">
-                              <span className="mr-2 text-primary">•</span> {r}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                    
-                    {artifact.confidenceScore && (
-                      <div className="mt-4 pt-4 border-t">
-                        <div className="flex items-center space-x-1">
-                          <Check className="h-4 w-4 text-green-600" />
-                          <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
-                            {artifact.confidenceScore} Confidence
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </DialogContent>
-            </Dialog>
+              </Dialog>
+            </TooltipProvider>
           </div>
         </div>
       </CardHeader>

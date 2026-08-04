@@ -15,8 +15,8 @@ export function LineChartWidget({ artifact, xKey, yKey }: { artifact: EvidenceAr
   const showBrush = data.length > 20;
 
   return (
-    <ResponsiveContainer width="100%" height={400}>
-      <LineChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={data} margin={{ top: 20, right: 30, left: 10, bottom: 40 }}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.5} />
         <XAxis dataKey={xKey} tickFormatter={formatTick} minTickGap={30} angle={-45} textAnchor="end" height={60} />
         <YAxis tickFormatter={(val) => formatNumber(val, format)} />

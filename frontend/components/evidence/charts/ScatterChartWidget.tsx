@@ -8,8 +8,8 @@ export function ScatterChartWidget({ artifact, xKey, yKey }: { artifact: Evidenc
   const data = artifact.data;
 
   return (
-    <ResponsiveContainer width="100%" height={400}>
-      <ScatterChart margin={{ top: 20, right: 30, bottom: 60, left: 20 }}>
+    <ResponsiveContainer width="100%" height="100%">
+      <ScatterChart margin={{ top: 20, right: 30, left: 10, bottom: 40 }}>
         <CartesianGrid strokeDasharray="3 3" opacity={0.5} />
         <XAxis type="number" dataKey={xKey} name={artifact.metadata?.x_label || xKey} tickFormatter={(val) => formatNumber(val, 'compact')} />
         <YAxis type="number" dataKey={yKey} name={artifact.metadata?.y_label || yKey} tickFormatter={(val) => formatNumber(val, format)} />
