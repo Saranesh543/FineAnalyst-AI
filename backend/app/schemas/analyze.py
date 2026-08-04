@@ -23,7 +23,7 @@ class AnalyzeRequest(BaseModel):
 
     question: str = Field(
         ...,
-        min_length=3,
+        min_length=2,
         description="The natural-language business question to analyze.",
     )
 
@@ -39,16 +39,24 @@ class AnalyzeResponse(BaseModel):
     question: str = Field(
         description="The original question."
     )
-    sql: str = Field(
+    intent: str | None = Field(
+        default=None,
+        description="The classified intent (conversation, knowledge, database).",
+    )
+    sql: str | None = Field(
+        default=None,
         description="The generated SQL query."
     )
-    execution: SQLExecutionResponse = Field(
+    execution: SQLExecutionResponse | None = Field(
+        default=None,
         description="The database execution results (columns, rows, execution time)."
     )
-    visualization: VisualizationRecommendation = Field(
+    visualization: VisualizationRecommendation | None = Field(
+        default=None,
         description="The recommended chart format."
     )
-    insight: BusinessInsightResponse = Field(
+    insight: BusinessInsightResponse | None = Field(
+        default=None,
         description="The generated business insights (summary, key findings, etc)."
     )
 

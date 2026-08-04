@@ -62,7 +62,18 @@ export const agentClient = {
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
-      throw new Error("Failed to analyze");
+      let errorMsg = "Failed to analyze";
+      try {
+        const errorData = await res.json();
+        if (errorData.message) {
+          errorMsg = errorData.message;
+        } else if (errorData.detail) {
+          errorMsg = JSON.stringify(errorData.detail);
+        }
+      } catch (e) {
+        // Fallback if not JSON
+      }
+      throw new Error(errorMsg);
     }
     return res.json();
   },

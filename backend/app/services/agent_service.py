@@ -3,6 +3,9 @@ Agent Service Module
 
 Provides AgentService — the single entry-point for all agent interactions.
 Responsibilities:
+  - Classify every incoming message via IntentClassifier (Phase 2.1).
+  - Return conversational responses (Greeting / Identity / Help) directly,
+    bypassing schema discovery and SQL generation entirely.
   - Manage per-session conversation history (in-memory, no DB persistence).
   - Invoke the PydanticAI agent with the appropriate message history.
   - Translate PydanticAI results into structured AgentResponse objects.
@@ -16,9 +19,9 @@ import logging
 import time
 import uuid
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
 
 from app.agents.fineanalyst_agent import get_agent

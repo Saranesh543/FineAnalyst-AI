@@ -52,20 +52,27 @@ def mock_insight():
     return BusinessInsightResponse(summary="sum", key_findings=[], anomalies=[], recommendations=[])
 
 @pytest.fixture
-def mock_all_services(mock_schema, mock_sql, mock_exec, mock_vis, mock_insight):
+def mock_intent():
+    from app.schemas.intent import IntentResult, Intent
+    return IntentResult(intent=Intent.DATABASE)
+
+@pytest.fixture
+def mock_all_services(mock_schema, mock_sql, mock_exec, mock_vis, mock_insight, mock_intent):
     with patch("app.services.analytics_orchestrator.schema_service.get_schema", new_callable=AsyncMock) as m_schema, \
          patch("app.services.analytics_orchestrator.sql_generator_service.generate", new_callable=AsyncMock) as m_sql, \
          patch("app.services.analytics_orchestrator.sql_executor_service.execute_sql", new_callable=AsyncMock) as m_exec, \
          patch("app.services.analytics_orchestrator.chart_recommender_service.recommend") as m_vis, \
-         patch("app.services.analytics_orchestrator.business_insight_service.generate_insight", new_callable=AsyncMock) as m_insight:
+         patch("app.services.analytics_orchestrator.business_insight_service.generate_insight", new_callable=AsyncMock) as m_insight, \
+         patch("app.services.analytics_orchestrator.intent_router.classify", new_callable=AsyncMock) as m_intent:
         
         m_schema.return_value = mock_schema
         m_sql.return_value = mock_sql
         m_exec.return_value = mock_exec
         m_vis.return_value = mock_vis
         m_insight.return_value = mock_insight
+        m_intent.return_value = mock_intent
         
-        yield (m_schema, m_sql, m_exec, m_vis, m_insight)
+        yield (m_schema, m_sql, m_exec, m_vis, m_insight, m_intent)
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +82,7 @@ def mock_all_services(mock_schema, mock_sql, mock_exec, mock_vis, mock_insight):
 @pytest.mark.asyncio
 class TestAnalyticsOrchestratorService:
     async def test_analyze_success_path(self, mock_all_services, mock_sql, mock_exec, mock_vis, mock_insight):
-        m_schema, m_sql_mock, m_exec_mock, m_vis_mock, m_insight_mock = mock_all_services
+        m_schema, m_sql_mock, m_exec_mock, m_vis_mock, m_insight_mock, m_intent_mock = mock_all_services
         service = AnalyticsOrchestratorService()
         
         res = await service.analyze("test question")
@@ -93,7 +100,7 @@ class TestAnalyticsOrchestratorService:
         m_insight_mock.assert_called_once()
 
     async def test_schema_failure(self, mock_all_services):
-        m_schema, m_sql, m_exec, m_vis, m_insight = mock_all_services
+        m_schema, m_sql, m_exec, m_vis, m_insight, m_intent = mock_all_services
         m_schema.side_effect = RuntimeError("DB down")
         
         service = AnalyticsOrchestratorService()
@@ -104,7 +111,7 @@ class TestAnalyticsOrchestratorService:
         assert "DB down" in str(exc.value)
 
     async def test_sql_generation_failure(self, mock_all_services):
-        m_schema, m_sql, m_exec, m_vis, m_insight = mock_all_services
+        m_schema, m_sql, m_exec, m_vis, m_insight, m_intent = mock_all_services
         m_sql.side_effect = ValueError("Invalid prompt")
         
         service = AnalyticsOrchestratorService()
@@ -114,7 +121,7 @@ class TestAnalyticsOrchestratorService:
         assert exc.value.stage == "sql_generation"
 
     async def test_sql_execution_failure(self, mock_all_services):
-        m_schema, m_sql, m_exec, m_vis, m_insight = mock_all_services
+        m_schema, m_sql, m_exec, m_vis, m_insight, m_intent = mock_all_services
         m_exec.side_effect = ValueError("Syntax error")
         
         service = AnalyticsOrchestratorService()
@@ -124,7 +131,7 @@ class TestAnalyticsOrchestratorService:
         assert exc.value.stage == "sql_execution"
 
     async def test_visualization_failure(self, mock_all_services):
-        m_schema, m_sql, m_exec, m_vis, m_insight = mock_all_services
+        m_schema, m_sql, m_exec, m_vis, m_insight, m_intent = mock_all_services
         m_vis.side_effect = TypeError("Bad data")
         
         service = AnalyticsOrchestratorService()
@@ -134,7 +141,7 @@ class TestAnalyticsOrchestratorService:
         assert exc.value.stage == "visualization"
 
     async def test_insight_failure(self, mock_all_services):
-        m_schema, m_sql, m_exec, m_vis, m_insight = mock_all_services
+        m_schema, m_sql, m_exec, m_vis, m_insight, m_intent = mock_all_services
         m_insight.side_effect = RuntimeError("AI offline")
         
         service = AnalyticsOrchestratorService()
@@ -144,7 +151,7 @@ class TestAnalyticsOrchestratorService:
         assert exc.value.stage == "insight"
 
     async def test_empty_schema_handled(self, mock_all_services, mock_schema):
-        m_schema, m_sql, m_exec, m_vis, m_insight = mock_all_services
+        m_schema, m_sql, m_exec, m_vis, m_insight, m_intent = mock_all_services
         mock_schema.table_count = 0
         mock_schema.is_empty = True
         
@@ -298,7 +305,7 @@ async def test_api_analyze_sql_execution_failure(mock_all_services, valid_analyz
 
 @pytest.mark.asyncio
 async def test_api_analyze_visualization_failure(mock_all_services, valid_analyze_payload):
-    _, _, _, m_vis, _ = mock_all_services
+    _, _, _, m_vis, _, _ = mock_all_services
     m_vis.side_effect = ValueError("Bad data")
     
     from app.main import app
@@ -314,7 +321,7 @@ async def test_api_analyze_visualization_failure(mock_all_services, valid_analyz
 
 @pytest.mark.asyncio
 async def test_api_analyze_insight_failure(mock_all_services, valid_analyze_payload):
-    *_, m_insight = mock_all_services
+    *_, m_insight, _ = mock_all_services
     m_insight.side_effect = RuntimeError("AI Error")
     
     from app.main import app
