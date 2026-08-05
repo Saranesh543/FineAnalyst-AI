@@ -27,6 +27,10 @@ class AnalyzeRequest(BaseModel):
         min_length=2,
         description="The natural-language business question to analyze.",
     )
+    history: list[str] | None = Field(
+        default=None,
+        description="Optional list of previous questions for conversation context.",
+    )
 
 
 # ---------------------------------------------------------------------------

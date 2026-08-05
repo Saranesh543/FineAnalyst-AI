@@ -39,29 +39,26 @@ class AnalyticsOrchestratorService:
     def __init__(self) -> None:
         logger.debug("AnalyticsOrchestratorService initialised.")
 
-    async def analyze(self, question: str) -> AnalyzeResponse:
+    async def analyze(self, question: str, history: list[str] | None = None) -> AnalyzeResponse:
         """
         Executes the full analytics workflow.
 
         Args:
-            question: The natural-language business question.
+            question: The user's natural language question.
+            history: Optional list of previous questions for context.
 
         Returns:
-            AnalyzeResponse containing the unified results.
-
-        Raises:
-            AnalyticsWorkflowError: If any pipeline stage fails.
+            AnalyzeResponse containing the SQL, results, visualization, and insights.
         """
         t_start = time.perf_counter()
         request_id = f"workflow-{int(time.time() * 1000)}"
-
-        logger.info("[%s] Analytics workflow started | question=%r", request_id, question)
+        logger.info("[%s] Starting analytics workflow for question: %r", request_id, question)
 
         # -----------------------------------------------------------------------
         # 0. Intent Routing
         # -----------------------------------------------------------------------
         try:
-            intent_result = await intent_router.classify(question)
+            intent_result = await intent_router.classify(question, history=history)
             logger.info("[%s] Intent classified as %s", request_id, intent_result.intent)
 
             if intent_result.intent in (Intent.CONVERSATION, Intent.KNOWLEDGE):
@@ -93,7 +90,7 @@ class AnalyticsOrchestratorService:
         # -----------------------------------------------------------------------
         try:
             logger.info("[%s] Generating SQL...", request_id)
-            sql_response = await sql_generator_service.generate(question, schema_response)
+            sql_response = await sql_generator_service.generate(question, schema_response, history=history)
             logger.info("[%s] SQL generated", request_id)
         except SQLSchemaValidationError as exc:
             logger.warning("[%s] Schema validation failed. Attempting retry...", request_id)

@@ -4,6 +4,9 @@ import { Suspense } from "react";
 import { Toaster } from "sonner";
 import { AppSidebar } from "@/components/chat/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { TopNav } from "@/components/layout/TopNav";
+import { RightHistoryPanel } from "@/components/layout/RightHistoryPanel";
+import { AmbientBackground } from "@/components/layout/AmbientBackground";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -25,17 +28,24 @@ async function SidebarShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen={!isCollapsed}>
-      <AppSidebar user={{ email: "user@fineanalyst.ai", id: "user-1" }} />
-      <SidebarInset>
-        <Toaster
-          position="top-center"
-          theme="system"
-          toastOptions={{
-            className:
-              "!bg-card !text-foreground !border-border/50 !shadow-[var(--shadow-float)]",
-          }}
-        />
-        {children}
+      <AppSidebar />
+      <SidebarInset className="flex flex-col bg-background h-screen overflow-hidden">
+        <TopNav />
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex-1 relative overflow-hidden">
+            <Toaster
+              position="top-center"
+              theme="system"
+              toastOptions={{
+                className:
+                  "!bg-card !text-foreground !border-border/50 !shadow-[var(--shadow-float)]",
+              }}
+            />
+            <AmbientBackground />
+            {children}
+          </div>
+          <RightHistoryPanel />
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );

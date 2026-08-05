@@ -1,6 +1,15 @@
 import React from 'react';
 
-export const COLORS = ['#2563eb', '#16a34a', '#dc2626', '#eab308', '#9333ea', '#0891b2', '#f97316', '#14b8a6'];
+export const COLORS = [
+  '#22d3ee', // Cyan
+  '#2dd4bf', // Teal
+  '#6366f1', // Indigo
+  '#a855f7', // Purple
+  '#3b82f6', // Blue
+  '#f43f5e', // Rose/Accent
+  '#f59e0b', // Amber/Accent
+  '#10b981'  // Emerald
+];
 
 export const formatNumber = (value: any, formatType?: string) => {
   if (value === null || value === undefined) return '-';

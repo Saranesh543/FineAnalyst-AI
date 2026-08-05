@@ -35,7 +35,9 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
     }
   }
 
-  const chartType = artifact.metadata?.chart_type || artifact.chartType || 'table';
+  const chartType = artifact.metadata?.chart_type || artifact.chartType || 'data_grid';
+  
+  console.error(`[TRACE] EvidenceArtifactRenderer Props: chartType=${chartType}, title=${artifact.title}, data.length=${artifact.data?.length}, xKey=${xKey}, yKey=${yKey}, metadata=${JSON.stringify(artifact.metadata)}`);
   
   // Instrument logging as requested
   if (process.env.NODE_ENV === 'development') {
@@ -100,15 +102,25 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
       );
     }
 
+    const needsAxes = !['kpi', 'data_grid', 'map'].includes(chartType);
+    if (needsAxes && (!xKey || !yKey)) {
+      return (
+        <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground bg-muted/10 rounded-lg border">
+          <Database className="h-8 w-8 text-muted-foreground/50 mb-2" />
+          <p>Visualization unavailable</p>
+          <p className="text-xs text-muted-foreground mt-1">Unable to render this visualization due to missing axis data.</p>
+        </div>
+      );
+    }
+
     switch (chartType) {
       case 'kpi':
         return <KpiCard artifact={artifact} xKey={xKey!} yKey={yKey!} />;
       case 'bar':
         return <BarChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
-      case 'horizontal-bar':
+      case 'horizontal_bar':
         return <BarChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} isHorizontal={true} />;
       case 'line':
-      case 'multi-line':
         return <LineChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
       case 'area':
         return <AreaChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
@@ -123,7 +135,6 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
       case 'map':
         return <MapPlaceholderWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
       case 'data_grid':
-      case 'table':
         return <DataGridWidget artifact={artifact} />;
       default:
         return <DataGridWidget artifact={artifact} />;
@@ -206,22 +217,22 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
                   </TooltipTrigger>
                   <TooltipContent>Open fullscreen report</TooltipContent>
                 </Tooltip>
-                <DialogContent className="max-w-[95vw] w-[1400px] max-h-[95vh] overflow-y-auto bg-gray-50/50">
-                <DialogHeader className="bg-white p-6 border-b rounded-t-lg shadow-sm">
+                <DialogContent className="sm:max-w-[95vw] lg:max-w-[1400px] w-full max-h-[90vh] flex flex-col p-0 overflow-hidden bg-background border-border/20 shadow-2xl">
+                <DialogHeader className="sticky top-0 z-10 shrink-0 bg-card/80 backdrop-blur-xl p-6 border-b border-border/10 shadow-sm">
                   <div className="flex items-center space-x-2">
-                    <Database className="h-6 w-6 text-primary" />
-                    <DialogTitle className="text-2xl font-bold">{artifact.metadata?.title || artifact.title}</DialogTitle>
+                    <Database className="h-6 w-6 text-cyan-400" />
+                    <DialogTitle className="text-2xl font-bold text-foreground tracking-tight">{artifact.metadata?.title || artifact.title}</DialogTitle>
                   </div>
                 </DialogHeader>
                 
-                <div className="p-6 space-y-6">
+                <div className="p-6 space-y-6 flex-1 overflow-y-auto custom-scrollbar bg-background/50">
                   {/* KPIs */}
                   {artifact.insights?.kpi_cards?.length ? (
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       {artifact.insights.kpi_cards.map((kpi, idx) => (
-                        <div key={idx} className="bg-white p-4 rounded-lg border shadow-sm">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase">{kpi.label}</p>
-                          <p className="text-3xl font-bold text-primary mt-2">{kpi.value}</p>
+                        <div key={idx} className="bg-card/40 backdrop-blur-md p-4 rounded-xl border border-cyan-500/10 shadow-glow transition-all hover:-translate-y-1 hover:shadow-[0_0_20px_rgba(34,211,238,0.1)]">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{kpi.label}</p>
+                          <p className="text-3xl font-bold text-cyan-400 mt-2">{kpi.value}</p>
                         </div>
                       ))}
                     </div>
@@ -229,16 +240,16 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
 
                   {/* Chart (70%) and Insights (30%) */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 bg-white p-6 rounded-lg border shadow-sm h-[500px]">
+                    <div className="lg:col-span-2 bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow h-[500px]">
                       {renderChart()}
                     </div>
                     
-                    <div className="lg:col-span-1 bg-white p-6 rounded-lg border shadow-sm space-y-6 overflow-y-auto h-[500px]">
+                    <div className="lg:col-span-1 bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow space-y-6 overflow-y-auto h-[500px] custom-scrollbar">
                       {artifact.confidenceScore && (
                         <div>
                           <div className="flex items-center space-x-2">
-                            <span className="text-sm font-semibold">AI Confidence:</span>
-                            <span className="text-xs font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full flex items-center">
+                            <span className="text-sm font-semibold text-foreground">AI Confidence:</span>
+                            <span className="text-xs font-bold text-green-400 bg-green-500/20 px-3 py-1 rounded-full flex items-center">
                               <Check className="h-3 w-3 mr-1" /> {artifact.confidenceScore}
                             </span>
                           </div>
@@ -247,11 +258,11 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
 
                       {artifact.insights?.key_findings?.length ? (
                         <div className="space-y-3">
-                          <h3 className="font-bold text-lg border-b pb-2">Key Insights</h3>
+                          <h3 className="font-bold text-lg border-b border-border/10 pb-2 text-foreground">Key Insights</h3>
                           <ul className="space-y-3 text-sm">
                             {artifact.insights.key_findings.map((f, i) => (
-                              <li key={i} className="flex items-start text-gray-700">
-                                <span className="mr-2 text-primary font-bold">•</span> {f}
+                              <li key={i} className="flex items-start text-muted-foreground">
+                                <span className="mr-2 text-cyan-400 font-bold">•</span> {f}
                               </li>
                             ))}
                           </ul>
@@ -262,13 +273,13 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
 
                   {/* Recommendations */}
                   {artifact.insights?.recommendations?.length ? (
-                    <div className="bg-white p-6 rounded-lg border shadow-sm space-y-3">
-                      <h3 className="font-bold text-lg border-b pb-2">Business Recommendations</h3>
+                    <div className="bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow space-y-3">
+                      <h3 className="font-bold text-lg border-b border-border/10 pb-2 text-foreground">Business Recommendations</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                         {artifact.insights.recommendations.map((r, i) => (
-                          <div key={i} className="flex items-start bg-blue-50/50 p-4 rounded-md border border-blue-100">
-                            <span className="mr-2 text-blue-600 font-bold">•</span> 
-                            <span className="text-sm text-gray-800">{r}</span>
+                          <div key={i} className="flex items-start bg-accent/10 p-4 rounded-xl border border-cyan-500/10 transition-all hover:bg-accent/20">
+                            <span className="mr-2 text-cyan-400 font-bold">•</span> 
+                            <span className="text-sm text-muted-foreground">{r}</span>
                           </div>
                         ))}
                       </div>
@@ -276,17 +287,17 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
                   ) : null}
 
                   {/* SQL */}
-                  <div className="bg-white p-6 rounded-lg border shadow-sm space-y-3">
-                     <h3 className="font-bold text-lg border-b pb-2">Source Query</h3>
-                     <pre className="p-4 bg-muted/50 rounded-md overflow-x-auto text-sm text-foreground">
+                  <div className="bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow space-y-3">
+                     <h3 className="font-bold text-lg border-b border-border/10 pb-2 text-foreground">Source Query</h3>
+                     <pre className="p-4 bg-black/40 rounded-xl overflow-x-auto overflow-y-auto max-h-[300px] whitespace-pre-wrap break-words text-sm text-cyan-300 font-mono custom-scrollbar">
                        <code>{artifact.sql}</code>
                      </pre>
                   </div>
 
                   {/* Raw Data */}
-                  {chartType !== 'data_grid' && chartType !== 'table' && (
-                    <div className="bg-white p-6 rounded-lg border shadow-sm space-y-3">
-                      <h3 className="font-bold text-lg border-b pb-2">Raw Data</h3>
+                  {chartType !== 'data_grid' && (
+                    <div className="bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow space-y-3">
+                      <h3 className="font-bold text-lg border-b border-border/10 pb-2 text-foreground">Raw Data</h3>
                       <div className="h-[400px]">
                         <DataGridWidget artifact={artifact} />
                       </div>
@@ -299,9 +310,8 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
           </div>
         </div>
       </CardHeader>
-      {/* The ref is placed on CardContent so the PNG export captures just the chart context */}
-      <CardContent className="pt-6" ref={chartRef}>
-        <div className="bg-white p-4">
+      <CardContent className="pt-6 p-0" ref={chartRef}>
+        <div className="bg-white p-6 rounded-b-xl h-[400px]">
           <div className="mb-4 hidden export-only">
              <h2 className="text-xl font-bold">{artifact.metadata?.title || artifact.title}</h2>
              {artifact.metadata?.subtitle && <p className="text-sm text-gray-500">{artifact.metadata.subtitle}</p>}

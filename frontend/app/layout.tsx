@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/components/auth/AuthProvider";
+import { Suspense } from "react";
 
 import "./globals.css";
 
@@ -73,7 +75,11 @@ export default function RootLayout({
           disableTransitionOnChange
           enableSystem
         >
-          <TooltipProvider>{children}</TooltipProvider>
+          <Suspense fallback={null}>
+            <AuthProvider>
+              <TooltipProvider>{children}</TooltipProvider>
+            </AuthProvider>
+          </Suspense>
         </ThemeProvider>
       </body>
     </html>

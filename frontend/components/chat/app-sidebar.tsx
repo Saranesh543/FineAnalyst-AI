@@ -2,16 +2,19 @@
 
 import {
   MessageSquareIcon,
-  PanelLeftIcon,
-  PenSquareIcon,
-  TrashIcon,
+  BarChart2,
+  Database,
+  LayoutDashboard,
+  FileText,
+  Code,
+  Settings,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { toast } from "sonner";
-import { useSWRConfig } from "swr";
-import { SidebarUserNav } from "@/components/chat/sidebar-user-nav";
 import {
   Sidebar,
   SidebarContent,
@@ -22,26 +25,15 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
-  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import { useConversationStore } from "@/lib/store/conversation-store";
 
-export function AppSidebar({ user }: { user: { email: string; id: string } | undefined }) {
+export function AppSidebar() {
   const router = useRouter();
-  const { setOpenMobile, toggleSidebar } = useSidebar();
-  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const { setOpenMobile, toggleSidebar, state } = useSidebar();
+  const isCollapsed = state === "collapsed";
+  const { createNewSession } = useConversationStore();
 
   const closeMobile = useCallback(() => {
     setOpenMobile(false);
@@ -51,120 +43,94 @@ export function AppSidebar({ user }: { user: { email: string; id: string } | und
     toggleSidebar();
   }, [toggleSidebar]);
 
-  const handleNewChat = useCallback(() => {
-    setOpenMobile(false);
+  const handleNewChat = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    createNewSession();
+    closeMobile();
     router.push("/");
-  }, [router, setOpenMobile]);
+  }, [createNewSession, closeMobile, router]);
 
-  const handleShowDeleteAllDialog = useCallback(() => {
-    setShowDeleteAllDialog(true);
-  }, []);
-
-  const handleDeleteAll = useCallback(() => {
-    setShowDeleteAllDialog(false);
-    router.replace("/");
-    
-    // Clear the localStorage history
-    localStorage.removeItem("fineanalyst_chat_history");
-    
-    // Notify SWR to refresh the SidebarHistory component
-    import("swr").then(({ mutate }) => mutate("local_history"));
-
-    toast.success("All chats deleted");
-  }, [router]);
+  const navItems: Array<{
+    title: string;
+    icon: any;
+    active?: boolean;
+    disabled?: boolean;
+    onClick?: (e: React.MouseEvent) => void;
+  }> = [
+    { title: "New Chat", icon: MessageSquareIcon, active: true, onClick: handleNewChat },
+    // Temporarily hidden items - kept here for future features
+    // { title: "Analytics (Coming Soon)", icon: BarChart2, active: false, disabled: true },
+    // { title: "Data Sources (Coming Soon)", icon: Database, active: false, disabled: true },
+    // { title: "Dashboards (Coming Soon)", icon: LayoutDashboard, active: false, disabled: true },
+    // { title: "Reports (Coming Soon)", icon: FileText, active: false, disabled: true },
+    // { title: "Saved Queries (Coming Soon)", icon: Code, active: false, disabled: true },
+    // { title: "Settings (Coming Soon)", icon: Settings, active: false, disabled: true },
+  ];
 
   return (
-    <>
-      <Sidebar collapsible="icon">
-        <SidebarHeader className="pb-0 pt-3">
-          <SidebarMenu>
-            <SidebarMenuItem className="flex flex-row items-center justify-between">
-              <div className="group/logo relative flex items-center justify-center">
-                <SidebarMenuButton
-                  asChild
-                  className="size-8 !px-0 items-center justify-center group-data-[collapsible=icon]:group-hover/logo:opacity-0"
-                  tooltip="Chatbot"
-                >
-                  <Link href="/" onClick={closeMobile}>
-                    <MessageSquareIcon className="size-4 text-sidebar-foreground/50" />
-                  </Link>
-                </SidebarMenuButton>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <SidebarMenuButton
-                      className="pointer-events-none absolute inset-0 size-8 opacity-0 group-data-[collapsible=icon]:pointer-events-auto group-data-[collapsible=icon]:group-hover/logo:opacity-100"
-                      onClick={handleToggleSidebar}
-                    >
-                      <PanelLeftIcon className="size-4" />
-                    </SidebarMenuButton>
-                  </TooltipTrigger>
-                  <TooltipContent className="hidden md:block" side="right">
-                    Open sidebar
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="group-data-[collapsible=icon]:hidden">
-                <SidebarTrigger className="text-sidebar-foreground/60 transition-colors duration-150 hover:text-sidebar-foreground" />
-              </div>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup className="pt-1">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
+    <Sidebar collapsible="icon" variant="floating" className="border-none mt-4 mb-4 ml-4 h-[calc(100vh-2rem)] rounded-xl overflow-hidden shadow-float">
+      <SidebarHeader className="pb-4 pt-6">
+        <SidebarMenu>
+          <SidebarMenuItem className="flex flex-row items-center justify-center">
+            <div className="flex items-center justify-center w-full">
+               {isCollapsed ? (
+                 <BarChart2 className="size-6 text-cyan-400" />
+               ) : (
+                 <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-cyan-500/10 text-cyan-400 mb-2">
+                   <BarChart2 className="size-6" />
+                 </div>
+               )}
+            </div>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-2 px-2">
+              {navItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
-                    className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    onClick={handleNewChat}
-                    tooltip="New Chat"
+                    asChild={!item.disabled}
+                    tooltip={item.title}
+                    disabled={item.disabled}
+                    onClick={item.onClick}
+                    className={`h-11 rounded-lg transition-all duration-200 group ${
+                      item.active
+                        ? "bg-cyan-500/10 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.1)]"
+                        : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    } ${item.disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
                   >
-                    <PenSquareIcon className="size-4" />
-                    <span className="font-medium">New chat</span>
+                    {item.disabled ? (
+                      <div className="flex flex-col items-center justify-center py-2 h-auto gap-1">
+                        <item.icon className="size-5" />
+                        {!isCollapsed && <span className="text-[10px] font-medium leading-none">{item.title}</span>}
+                      </div>
+                    ) : (
+                      <a href="#" className="flex flex-col items-center justify-center py-2 h-auto gap-1">
+                        <item.icon className={`size-5 ${item.active ? 'text-cyan-400' : ''}`} />
+                        {!isCollapsed && <span className="text-[10px] font-medium leading-none">{item.title}</span>}
+                      </a>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                {user ? (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      className="rounded-lg text-sidebar-foreground/40 transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
-                      onClick={handleShowDeleteAllDialog}
-                      tooltip="Delete All Chats"
-                    >
-                      <TrashIcon className="size-4" />
-                      <span className="text-[13px]">Delete all</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ) : null}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter className="border-t border-sidebar-border pt-2 pb-3">
-          {user ? <SidebarUserNav user={user} /> : null}
-        </SidebarFooter>
-        <SidebarRail />
-      </Sidebar>
-
-      <AlertDialog
-        onOpenChange={setShowDeleteAllDialog}
-        open={showDeleteAllDialog}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete all chats?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete all
-              your chats and remove them from our servers.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteAll}>
-              Delete All
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter className="pb-4">
+        <SidebarMenu>
+          <SidebarMenuItem>
+             <SidebarMenuButton
+                onClick={handleToggleSidebar}
+                className="h-10 rounded-lg text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground justify-center flex items-center"
+              >
+                {isCollapsed ? <ChevronRight className="size-5" /> : <ChevronLeft className="size-5" />}
+              </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+    </Sidebar>
   );
 }

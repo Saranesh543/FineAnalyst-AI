@@ -22,8 +22,8 @@ export function PieChartWidget({ artifact, xKey, yKey, isDonut = false }: { arti
           outerRadius={120}
           fill="#8884d8"
           paddingAngle={2}
-          label={data.length <= 8 ? ({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%` : false}
-          labelLine={data.length <= 8}
+          label={data.length <= 20 ? ({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%` : false}
+          labelLine={data.length <= 20}
         >
           {data.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

@@ -56,20 +56,32 @@ class IntentRouterService:
             logger.info("IntentRouterService agent initialised.")
         return self._agent
 
-    async def classify(self, message: str) -> IntentResult:
+    async def classify(self, message: str, history: list[str] | None = None) -> IntentResult:
         """
-        Classify the message into an Intent using the LLM.
+        Classify the intent of the given user message.
 
         Args:
             message: Raw user message.
+            history: Optional list of previous user messages.
 
         Returns:
             IntentResult containing the detected intent.
         """
         agent = self._get_agent()
-        logger.debug("Classifying intent for message: %r", message[:100])
+        
+        if history and len(history) > 0:
+            prompt_parts = ["Conversation History:"]
+            for i, past_msg in enumerate(history):
+                prompt_parts.append(f"User (turn {i+1}): {past_msg}")
+            prompt_parts.append("")
+            prompt_parts.append(f"Current Message: {message}")
+            prompt = "\n".join(prompt_parts)
+        else:
+            prompt = message
+        
+        logger.debug("Classifying intent for prompt: %r", prompt[:100])
         try:
-            result = await agent.run(message)
+            result = await agent.run(prompt)
             logger.info("Intent classified successfully. Validated Output: %s", result.output.model_dump_json())
             return result.output
         except Exception as exc:

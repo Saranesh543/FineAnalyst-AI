@@ -44,9 +44,10 @@ OUTPUT RULES:
 1. Provide a concise executive summary based STRICTLY on the rows. MAX 2 SENTENCES. NEVER mention "assumptions", "sample database", "hypothetical data", or "imaginary context". Just state the facts.
 2. Generate 3-6 key findings as concise bullet points. You MUST identify highest/lowest values, top/bottom performers, growth/decline, or significant differences if applicable.
 3. Generate KPI Cards from the overall data. Format them properly (e.g., format="currency", "percentage", "decimal", "compact", or "text"). Do not invent KPIs not supported by the data.
-4. Identify any obvious anomalies or outliers in the provided data. If none, leave empty.
-5. Recommend 3-5 actionable business recommendations derived ONLY from this data. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
-6. Generate 3-5 intelligent suggested follow-up questions (e.g., "Show monthly revenue", "Compare by country", "Revenue trend"). NEVER copy recommendations into suggested questions.
+4. NEVER perform mathematical arithmetic in the KPI card values (e.g. DO NOT output `10+20`). Always use the PRE-CALCULATED METRICS provided in the prompt, or output a single primitive float.
+5. Identify any obvious anomalies or outliers in the provided data. If none, leave empty.
+6. Recommend 3-5 actionable business recommendations derived ONLY from this data. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
+7. Generate 3-5 intelligent suggested follow-up questions (e.g., "Show monthly revenue", "Compare by country", "Revenue trend"). NEVER copy recommendations into suggested questions.
 """
 
 
@@ -70,7 +71,7 @@ def _build_insight_prompt(
     """Constructs the prompt string with all context needed for the AI."""
     
     # Truncate rows if too large to prevent token limits.
-    max_rows = 500
+    max_rows = 10
     rows_to_show = execution_result.rows[:max_rows]
     truncated_msg = ""
     if execution_result.row_count > max_rows:
@@ -90,6 +91,35 @@ def _build_insight_prompt(
     
     for row in rows_to_show:
         lines.append(str(row))
+        
+    # --- DETERMINISTIC METRICS CALCULATION ---
+    metrics = []
+    numeric_cols = []
+    
+    if execution_result.rows and execution_result.columns:
+        for i, col in enumerate(execution_result.columns):
+            for row in execution_result.rows:
+                val = row[i] if i < len(row) else None
+                if val is not None:
+                    if isinstance(val, (int, float)):
+                        numeric_cols.append((i, col))
+                    break
+                    
+        for idx, col in numeric_cols:
+            vals = [row[idx] for row in execution_result.rows if idx < len(row) and row[idx] is not None and isinstance(row[idx], (int, float))]
+            if not vals:
+                continue
+            col_sum = sum(vals)
+            col_avg = col_sum / len(vals)
+            col_min = min(vals)
+            col_max = max(vals)
+            metrics.append(f"- {col}: SUM={col_sum:,.2f}, AVG={col_avg:,.2f}, MIN={col_min:,.2f}, MAX={col_max:,.2f}")
+
+    if metrics:
+        lines.append("")
+        lines.append("--- PRE-CALCULATED METRICS ---")
+        lines.append("Use EXACTLY these numbers for your KPI cards. DO NOT perform arithmetic.")
+        lines.extend(metrics)
         
     return "\n".join(lines)
 

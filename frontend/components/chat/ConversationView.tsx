@@ -6,8 +6,12 @@ import { EmptyState } from "./EmptyState";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 
+const EMPTY_ARRAY: any[] = [];
+
 export function ConversationView() {
-  const { messages, sendMessage } = useConversationStore();
+  const { sendMessage } = useConversationStore();
+  const activeSessionId = useConversationStore(s => s.activeSessionId);
+  const messages = useConversationStore(s => (activeSessionId && s.sessions[activeSessionId]) ? s.sessions[activeSessionId].messages : EMPTY_ARRAY);
   const isStreaming = messages.length > 0 && messages[messages.length - 1].status === "streaming";
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -24,7 +28,7 @@ export function ConversationView() {
         className="flex-1 overflow-y-auto scroll-smooth"
       >
         {messages.length === 0 ? (
-          <EmptyState onSelectPrompt={(prompt) => sendMessage(prompt)} />
+          <EmptyState onSelectPrompt={(prompt) => sendMessage(prompt)} isStreaming={isStreaming} />
         ) : (
           <div className="pb-8">
             <MessageList messages={messages} />
@@ -32,9 +36,11 @@ export function ConversationView() {
         )}
       </div>
       
-      <div className="w-full shrink-0 relative z-10">
-        <Composer onSend={sendMessage} isStreaming={isStreaming} />
-      </div>
+      {messages.length > 0 && (
+        <div className="w-full shrink-0 relative z-10 animate-in slide-in-from-bottom-4 duration-500">
+          <Composer onSend={sendMessage} isStreaming={isStreaming} />
+        </div>
+      )}
     </div>
   );
 }

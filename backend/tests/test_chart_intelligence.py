@@ -24,7 +24,7 @@ def test_chart_intelligence_pie():
 def test_chart_intelligence_ranking_horizontal_bar():
     resp = create_mock_response(10, ["customer", "revenue"], [["Cust" + str(i), 100-i] for i in range(10)])
     decision = chart_intelligence_service.select_chart("Top 10 customers by revenue", resp)
-    assert decision.chart == "horizontal-bar"
+    assert decision.chart == "horizontal_bar"
 
 def test_chart_intelligence_trend_area():
     resp = create_mock_response(5, ["month", "revenue"], [["2023-01", 10], ["2023-02", 20], ["2023-03", 30], ["2023-04", 40], ["2023-05", 50]])

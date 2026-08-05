@@ -146,6 +146,52 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def _expand_wildcards(sql: str, schema: DatabaseSchemaResponse) -> str:
+    """
+    Expands SELECT * or table.* into explicit column lists.
+    """
+    import sqlglot
+    from sqlglot import exp
+    try:
+        ast = sqlglot.parse_one(sql, dialect=schema.dialect)
+    except Exception:
+        return sql
+    
+    schema_tables = {t.name.lower(): [c.name for c in t.columns] for t in schema.tables}
+
+    for select in ast.find_all(exp.Select):
+        table_aliases = {}
+        for table in select.find_all(exp.Table):
+            alias = table.alias.lower() if table.alias else table.name.lower()
+            table_aliases[alias] = table.name.lower()
+            
+        new_exprs = []
+        for projection in select.expressions:
+            if isinstance(projection, exp.Star):
+                for alias, table_name in table_aliases.items():
+                    cols = schema_tables.get(table_name, [])
+                    for col in cols:
+                        new_exprs.append(exp.column(col, table=alias))
+            elif isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star):
+                prefix_node = projection.args.get("table")
+                if prefix_node:
+                    prefix = prefix_node.name.lower()
+                    table_name = table_aliases.get(prefix, prefix)
+                    cols = schema_tables.get(table_name, [])
+                    if cols:
+                        for col in cols:
+                            new_exprs.append(exp.column(col, table=prefix))
+                    else:
+                        new_exprs.append(projection)
+                else:
+                    new_exprs.append(projection)
+            else:
+                new_exprs.append(projection)
+        select.set("expressions", new_exprs)
+        
+    return ast.sql(dialect=schema.dialect)
+
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
@@ -172,6 +218,7 @@ class SQLGeneratorService:
         self,
         question: str,
         schema: DatabaseSchemaResponse,
+        history: list[str] | None = None,
     ) -> SQLGenerationResponse:
         """
         Generate a validated SQL query from a natural-language question.
@@ -179,6 +226,7 @@ class SQLGeneratorService:
         Args:
             question: The user's natural-language question.
             schema:   The live database schema to constrain generation.
+            history:  Optional list of previous questions to provide context.
 
         Returns:
             SQLGenerationResponse containing the validated SQL.
@@ -201,11 +249,21 @@ class SQLGeneratorService:
 
         agent = self._get_agent()
         schema_text = _build_schema_section(schema)
-        user_prompt = (
-            f"Database Schema:\n{schema_text}\n\n"
-            f"Question: {question}\n\n"
-            "Return only the SQL query. No explanation. No markdown."
-        )
+        
+        prompt_parts = [
+            f"Database Schema:\n{schema_text}",
+        ]
+        
+        if history and len(history) > 0:
+            prompt_parts.append("Conversation History:")
+            for i, past_q in enumerate(history):
+                prompt_parts.append(f"Q{i+1}: {past_q}")
+            prompt_parts.append("")
+            
+        prompt_parts.append(f"Question: {question}")
+        prompt_parts.append("Return only the SQL query. No explanation. No markdown.")
+        
+        user_prompt = "\n".join(prompt_parts)
 
         try:
             result = await agent.run(user_prompt)
@@ -225,6 +283,9 @@ class SQLGeneratorService:
 
         # Strip any markdown fences the model may have added despite instructions.
         cleaned = _strip_markdown(raw_output)
+        
+        # Expand wildcards into explicit columns if present
+        cleaned = _expand_wildcards(cleaned, schema)
 
         # Validate safety and schema via sqlglot.
         try:

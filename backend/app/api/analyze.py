@@ -66,7 +66,10 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
     logger.info("Analyze request received for question: %r", payload.question)
 
     try:
-        response = await analytics_orchestrator.analyze(question=payload.question)
+        response = await analytics_orchestrator.analyze(
+            question=payload.question,
+            history=payload.history
+        )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=response.model_dump(mode="json"),
@@ -80,9 +83,13 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
         # related to user inputs, else 500. However, the requirements say "Return structured error"
         # and "Do not expose internal exceptions." Let's map stage-specific errors broadly:
         
-        # Determine status code by stage/underlying error
         status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        if exc.stage in ("sql_execution", "sql_generation", "schema", "visualization", "insight"):
+        message = "An unexpected error occurred during the analytics workflow."
+        
+        if exc.original_error and ("429" in str(exc.original_error) or "rate limit" in str(exc.original_error).lower()):
+            status_code = status.HTTP_429_TOO_MANY_REQUESTS
+            message = "AI Rate limit reached. Please try again in a few minutes."
+        elif exc.stage in ("sql_execution", "sql_generation", "schema", "visualization", "insight"):
             pass
             
         # Log the full stack trace internally, but do not expose it to the client

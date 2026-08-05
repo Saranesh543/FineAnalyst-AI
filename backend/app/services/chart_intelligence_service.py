@@ -47,6 +47,11 @@ class ChartIntelligenceService:
         return col_types
 
     def _generate_title(self, question: str) -> str:
+        # Strip any conversation history context that might have leaked
+        match = re.search(r'New question:\s*"(.*?)"', question, re.IGNORECASE)
+        if match:
+            question = match.group(1).strip()
+            
         q_lower = question.lower()
         
         # Template-based deterministic titles
@@ -71,7 +76,6 @@ class ChartIntelligenceService:
             
         # Fallback to simple parsing
         q = re.sub(r'^(show me|tell me|give me|what is|what are|list|show)\s+(the\s+)?', '', question, flags=re.IGNORECASE)
-        # Strip any conversation history context that might have leaked
         q = re.sub(r'(?i)^(Previous Context.*?:\s*|Conversation History.*?:\s*|User:\s*|Assistant:\s*|Question:\s*|New Question:\s*)', '', q).strip()
         
         small_words = {'by', 'and', 'or', 'in', 'of', 'for', 'to', 'with', 'on', 'at', 'from', 'vs'}
@@ -102,10 +106,10 @@ class ChartIntelligenceService:
     def select_chart(self, question: str, execution_result: SQLExecutionResponse) -> VisualizationRecommendation:
         if not execution_result.columns or execution_result.row_count == 0:
             return VisualizationRecommendation(
-                chart="table",
+                chart="data_grid",
                 confidence=1.0,
                 reason="Empty dataset.",
-                metadata=VisualizationMetadata(chart_type="table", title="No Data", interactive=False)
+                metadata=VisualizationMetadata(chart_type="data_grid", title="No Data", interactive=False)
             )
 
         row_count = execution_result.row_count
@@ -121,7 +125,7 @@ class ChartIntelligenceService:
 
         intent = self._detect_intent(question)
         
-        decision = VisualizationDecision(chart_type="table", reason="Default fallback", confidence=0.5)
+        decision = VisualizationDecision(chart_type="data_grid", reason="Default fallback", confidence=0.5)
         x_axis = None
         y_axis = None
         
@@ -156,13 +160,13 @@ class ChartIntelligenceService:
             
         # 5. Time Series (Line / Area)
         elif (intent == "trend" or datetime_cols) and numeric_cols:
-            chart = "area" if intent == "trend" else ("line" if len(numeric_cols) == 1 else "multi-line")
+            chart = "area" if intent == "trend" else "line"
             decision = VisualizationDecision(chart, "Trend intent or date columns detected.", 0.95)
             if datetime_cols: x_axis = datetime_cols[0]
             
         # 6. Ranking (Horizontal Bar)
         elif intent == "ranking" and categorical_cols and numeric_cols:
-            decision = VisualizationDecision("horizontal-bar", "Ranking intent detected with category and numeric.", 0.97)
+            decision = VisualizationDecision("horizontal_bar", "Ranking intent detected with category and numeric.", 0.97)
             
         # 7. Share / Percentage (Pie / Donut)
         elif intent == "distribution" and categorical_cols and numeric_cols:
@@ -179,7 +183,7 @@ class ChartIntelligenceService:
                 max_label_length = max([len(str(r[x_idx])) for r in rows[:20]])
                 
             if max_label_length > 15:
-                decision = VisualizationDecision("horizontal-bar", "Long category labels require horizontal bar layout.", 0.95)
+                decision = VisualizationDecision("horizontal_bar", "Long category labels require horizontal bar layout.", 0.95)
             else:
                 decision = VisualizationDecision("bar", "Category vs Numeric data best shown as a bar chart.", 0.9)
 

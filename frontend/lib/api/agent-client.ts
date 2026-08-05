@@ -14,6 +14,7 @@ export interface AgentChatResponse {
 
 export interface AnalyzeRequest {
   question: string;
+  history?: string[];
 }
 
 export interface KPICard {
@@ -24,6 +25,7 @@ export interface KPICard {
 
 export interface AnalyzeResponse {
   question: string;
+  intent?: string;
   sql: string;
   execution: {
     columns: string[];
@@ -32,9 +34,15 @@ export interface AnalyzeResponse {
     execution_time_ms: number;
   };
   visualization: {
-    chart_type: string;
-    encoding: any;
-    title: string;
+    chart: string;
+    confidence?: number;
+    reason?: string;
+    metadata: {
+      chart_type: string;
+      title: string;
+      encoding: Record<string, any>;
+      description?: string;
+    };
   };
   insight: {
     summary: string;
