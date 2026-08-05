@@ -1,7 +1,7 @@
 // RESOLUTION: 3. Standalone schema/ER endpoint: Yes, GET /schema exists. 4. Session state: Persisted server-side via AgentService. 6. Existing report/export tool: No existing tool in the backend agent.
-const API_BASE = process.env.NEXT_PUBLIC_API_URL 
-  ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1` 
-  : "http://localhost:8000/api/v1";
+const _rawUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const _cleanBase = _rawUrl.replace(/\/+$/, '');
+const API_BASE = _cleanBase.endsWith('/api/v1') ? _cleanBase : `${_cleanBase}/api/v1`;
 
 export interface AgentChatRequest {
   message: string;
