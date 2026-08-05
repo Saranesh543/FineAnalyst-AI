@@ -39,18 +39,35 @@ export const formatTick = (val: any) => {
   return formatNumber(val, 'compact');
 };
 
+export const ChartDefs = () => (
+  <defs>
+    <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <linearGradient id="cyanGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.4}/>
+      <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
+    </linearGradient>
+  </defs>
+);
+
 export const CustomTooltip = ({ active, payload, label, formatType }: any) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-background border rounded-lg shadow-lg p-3 text-sm z-50 relative">
-        <p className="font-medium mb-1">{label}</p>
-        {payload.map((entry: any, index: number) => (
-          <div key={index} className="flex items-center space-x-2">
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-            <span className="text-muted-foreground">{entry.name}:</span>
-            <span className="font-medium">{formatNumber(entry.value, formatType)}</span>
-          </div>
-        ))}
+      <div className="bg-black/70 backdrop-blur-md border border-cyan-500/20 rounded-xl shadow-[0_0_20px_rgba(34,211,238,0.15)] p-4 text-sm z-50 relative text-foreground min-w-[150px]">
+        <p className="font-bold text-foreground mb-2 border-b border-border/10 pb-2">{label}</p>
+        <div className="space-y-2">
+          {payload.map((entry: any, index: number) => (
+            <div key={index} className="flex items-center justify-between space-x-6">
+              <div className="flex items-center space-x-2">
+                <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.5)]" style={{ backgroundColor: entry.color || COLORS[index % COLORS.length] }} />
+                <span className="text-muted-foreground font-medium text-xs uppercase tracking-wider">{entry.name}:</span>
+              </div>
+              <span className="font-bold text-cyan-400">{formatNumber(entry.value, formatType)}</span>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

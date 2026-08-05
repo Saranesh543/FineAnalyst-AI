@@ -55,24 +55,24 @@ router = APIRouter(prefix="/analyze", tags=["Analytics Workflow"])
     },
 )
 async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
-    """
-    Execute the full end-to-end workflow based on a natural language question.
-
-    Returns:
-      - HTTP 200 with AnalyzeResponse on success.
-      - HTTP 422 with AnalyzeErrorResponse for user/data errors (e.g., unsafe SQL).
-      - HTTP 500 with AnalyzeErrorResponse for server/model errors.
-    """
-    logger.info("Analyze request received for question: %r", payload.question)
+    import uuid
+    import time
+    
+    request_id = f"req-{uuid.uuid4().hex[:8]}"
+    logger.info("[%s] Analyze request received. Question: %r", request_id, payload.question)
+    logger.info("[%s] Request Body: %s", request_id, payload.model_dump_json())
 
     try:
         response = await analytics_orchestrator.analyze(
             question=payload.question,
             history=payload.history
         )
+        response_json = response.model_dump(mode="json")
+        logger.info("[%s] Analyze completed successfully. HTTP 200.", request_id)
+        logger.debug("[%s] Response Body: %s", request_id, response_json)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=response.model_dump(mode="json"),
+            content=response_json,
         )
     except AnalyticsWorkflowError as exc:
         logger.warning("Analytics workflow failed at stage '%s': %s", exc.stage, exc)

@@ -63,38 +63,58 @@ export interface SchemaResponse {
 
 export const agentClient = {
   async chat(payload: AgentChatRequest): Promise<AgentChatResponse> {
-    const res = await fetch(`${API_BASE}/agent/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      throw new Error("Failed to chat with agent");
+    console.log(`[AgentClient] chat fetch started... Payload:`, payload);
+    const start = Date.now();
+    try {
+      const res = await fetch(`${API_BASE}/agent/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      console.log(`[AgentClient] chat HTTP status: ${res.status}, Time: ${Date.now() - start}ms`);
+      if (!res.ok) {
+        throw new Error(`Failed to chat with agent (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      console.log(`[AgentClient] chat response parsed successfully.`);
+      return data;
+    } catch (e) {
+      console.error(`[AgentClient] chat fetch threw exception:`, e);
+      throw e;
     }
-    return res.json();
   },
 
   async analyze(payload: AnalyzeRequest): Promise<AnalyzeResponse> {
-    const res = await fetch(`${API_BASE}/analyze`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      let errorMsg = "Failed to analyze";
-      try {
-        const errorData = await res.json();
-        if (errorData.message) {
-          errorMsg = errorData.message;
-        } else if (errorData.detail) {
-          errorMsg = JSON.stringify(errorData.detail);
+    console.log(`[AgentClient] analyze fetch started... Payload:`, payload);
+    const start = Date.now();
+    try {
+      const res = await fetch(`${API_BASE}/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      console.log(`[AgentClient] analyze HTTP status: ${res.status}, Time: ${Date.now() - start}ms`);
+      if (!res.ok) {
+        let errorMsg = `Failed to analyze (HTTP ${res.status})`;
+        try {
+          const errorData = await res.json();
+          if (errorData.message) {
+            errorMsg = errorData.message;
+          } else if (errorData.detail) {
+            errorMsg = JSON.stringify(errorData.detail);
+          }
+        } catch (e) {
+          // Fallback if not JSON
         }
-      } catch (e) {
-        // Fallback if not JSON
+        throw new Error(errorMsg);
       }
-      throw new Error(errorMsg);
+      const data = await res.json();
+      console.log(`[AgentClient] analyze response parsed successfully.`);
+      return data;
+    } catch (e) {
+      console.error(`[AgentClient] analyze fetch threw exception:`, e);
+      throw e;
     }
-    return res.json();
   },
 
   async getSchema(): Promise<SchemaResponse> {

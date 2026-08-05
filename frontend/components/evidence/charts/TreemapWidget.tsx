@@ -1,6 +1,6 @@
 import React from 'react';
 import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
-import { CustomTooltip } from './chart-utils';
+import { CustomTooltip, ChartDefs, COLORS } from './chart-utils';
 import { EvidenceArtifact } from '@/lib/types/chat';
 
 export function TreemapWidget({ artifact, xKey, yKey }: { artifact: EvidenceArtifact, xKey: string, yKey: string }) {
@@ -17,9 +17,10 @@ export function TreemapWidget({ artifact, xKey, yKey }: { artifact: EvidenceArti
         data={data}
         dataKey="size"
         aspectRatio={4 / 3}
-        stroke="#fff"
-        fill="#2563eb"
+        stroke="rgba(0,0,0,0.5)"
+        fill={COLORS[0]}
       >
+        <ChartDefs />
         <Tooltip content={<CustomTooltip formatType={format} />} />
       </Treemap>
     </ResponsiveContainer>

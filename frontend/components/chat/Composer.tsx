@@ -23,9 +23,13 @@ export function Composer({ onSend, isStreaming, className = "" }: ComposerProps)
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    console.log(`[Composer] handleSubmit triggered. text="${text}", isStreaming=${isStreaming}`);
     if (text.trim() && !isStreaming) {
+      console.log(`[Composer] Calling onSend for text: "${text.trim()}"`);
       onSend(text.trim());
       setText("");
+    } else {
+      console.log(`[Composer] Submission skipped. isStreaming=${isStreaming}, text.trim()=${!!text.trim()}`);
     }
   };
 

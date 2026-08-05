@@ -9,6 +9,7 @@ HTTP concerns (request validation, status codes, response shaping).
 from __future__ import annotations
 
 import logging
+import traceback
 
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
@@ -42,32 +43,41 @@ router = APIRouter(prefix="/agent", tags=["Agent"])
     },
 )
 async def chat(payload: AgentRequest) -> JSONResponse:
-    """
-    Main chat endpoint.
+    import uuid
+    import time
+    
+    request_id = f"req-{uuid.uuid4().hex[:8]}"
+    logger.info("[%s] Chat request received. Message: %r, Session: %s", request_id, payload.message, payload.session_id)
+    logger.info("[%s] Request Body: %s", request_id, payload.model_dump_json())
 
-    Accepts a user message (and optional session_id) and returns either:
-    - An `AgentResponse`  (HTTP 200) on success.
-    - An `AgentErrorResponse` (HTTP 500) if the agent fails.
-    """
-    result = await agent_service.process_message(
-        user_message=payload.message,
-        session_id=payload.session_id,
-    )
-
-    if isinstance(result, AgentErrorResponse):
-        logger.warning(
-            "Returning error response to client | error_code=%s",
-            result.error_code,
+    try:
+        result = await agent_service.process_message(
+            user_message=payload.message,
+            session_id=payload.session_id,
         )
+
+        if isinstance(result, AgentErrorResponse):
+            logger.warning(
+                "[%s] Returning error response to client | error_code=%s",
+                request_id,
+                result.error_code,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content=result.model_dump(mode="json"),
+            )
+
+        response_json = result.model_dump(mode="json")
+        logger.info("[%s] Chat completed successfully. HTTP 200.", request_id)
+        logger.debug("[%s] Response Body: %s", request_id, response_json)
         return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=result.model_dump(mode="json"),
+            status_code=status.HTTP_200_OK,
+            content=response_json,
         )
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content=result.model_dump(mode="json"),
-    )
+    except Exception as e:
+        logger.exception("[%s] Unhandled exception in chat endpoint: %s", request_id, e)
+        traceback.print_exc()
+        raise
 
 
 # ---------------------------------------------------------------------------

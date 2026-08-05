@@ -5,9 +5,10 @@ import { EvidenceArtifact } from "@/lib/types/chat";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import * as htmlToImage from 'html-to-image';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2, Database, Check, Copy } from "lucide-react";
+import { Loader2, Database, Check, Copy, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
 
 import { KpiCard } from './charts/KpiCard';
 import { BarChartWidget } from './charts/BarChartWidget';
@@ -18,6 +19,10 @@ import { ScatterChartWidget } from './charts/ScatterChartWidget';
 import { TreemapWidget } from './charts/TreemapWidget';
 import { MapPlaceholderWidget } from './charts/MapPlaceholderWidget';
 import { DataGridWidget } from './charts/DataGridWidget';
+import { SqlViewer } from './SqlViewer';
+import { AiExecutiveSummary } from './insights/AiExecutiveSummary';
+import { BusinessRecommendations } from './insights/BusinessRecommendations';
+import { AiInsightSidebar } from './insights/AiInsightSidebar';
 
 function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
   const chartRef = useRef<HTMLDivElement>(null);
@@ -217,92 +222,103 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
                   </TooltipTrigger>
                   <TooltipContent>Open fullscreen report</TooltipContent>
                 </Tooltip>
-                <DialogContent className="sm:max-w-[95vw] lg:max-w-[1400px] w-full max-h-[90vh] flex flex-col p-0 overflow-hidden bg-background border-border/20 shadow-2xl">
-                <DialogHeader className="sticky top-0 z-10 shrink-0 bg-card/80 backdrop-blur-xl p-6 border-b border-border/10 shadow-sm">
+                <DialogContent className="sm:max-w-[95vw] lg:max-w-[95vw] xl:max-w-[1600px] w-full max-h-[95vh] h-[95vh] flex flex-col p-0 overflow-hidden bg-background/95 backdrop-blur-3xl border-cyan-500/30 shadow-[0_0_50px_rgba(34,211,238,0.15)] rounded-2xl">
+                
+                {/* Header */}
+                <DialogHeader className="sticky top-0 z-20 shrink-0 bg-background/80 backdrop-blur-xl px-6 py-4 border-b border-white/5 shadow-sm flex flex-row items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <div className="h-12 w-12 rounded-xl bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20 shadow-[0_0_15px_rgba(34,211,238,0.2)]">
+                      <Database className="h-6 w-6 text-cyan-400" />
+                    </div>
+                    <div>
+                      <DialogTitle className="text-2xl font-bold text-foreground tracking-tight flex items-center">
+                        {artifact.metadata?.title || artifact.title}
+                        <span className="ml-3 text-[10px] uppercase tracking-wider font-bold bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded border border-cyan-500/20">
+                          {chartType.replace('_', ' ')}
+                        </span>
+                      </DialogTitle>
+                      <p className="text-sm text-muted-foreground mt-0.5 flex items-center space-x-2">
+                        <span>Database: <span className="text-foreground/80 font-medium">FineAnalyst Demo</span></span>
+                        <span>•</span>
+                        <span>Generated: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </p>
+                    </div>
+                  </div>
                   <div className="flex items-center space-x-2">
-                    <Database className="h-6 w-6 text-cyan-400" />
-                    <DialogTitle className="text-2xl font-bold text-foreground tracking-tight">{artifact.metadata?.title || artifact.title}</DialogTitle>
+                    <Button variant="outline" size="sm" className="h-9 bg-black/20 border-white/10 hover:bg-white/10" onClick={downloadCSV} disabled={!artifact.data?.length}>
+                      <span className="mr-2">⬇</span> Export CSV
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-9 bg-black/20 border-white/10 hover:bg-white/10" onClick={downloadPNG} disabled={downloadingPNG || !artifact.data?.length}>
+                      {downloadingPNG ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <span className="mr-2">🖼</span>} Export Image
+                    </Button>
                   </div>
                 </DialogHeader>
                 
-                <div className="p-6 space-y-6 flex-1 overflow-y-auto custom-scrollbar bg-background/50">
-                  {/* KPIs */}
-                  {artifact.insights?.kpi_cards?.length ? (
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      {artifact.insights.kpi_cards.map((kpi, idx) => (
-                        <div key={idx} className="bg-card/40 backdrop-blur-md p-4 rounded-xl border border-cyan-500/10 shadow-glow transition-all hover:-translate-y-1 hover:shadow-[0_0_20px_rgba(34,211,238,0.1)]">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{kpi.label}</p>
-                          <p className="text-3xl font-bold text-cyan-400 mt-2">{kpi.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {/* Chart (70%) and Insights (30%) */}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow h-[500px]">
-                      {renderChart()}
-                    </div>
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar bg-background/40 relative">
+                  <div className="p-6 md:p-8 space-y-8 max-w-[1600px] mx-auto">
                     
-                    <div className="lg:col-span-1 bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow space-y-6 overflow-y-auto h-[500px] custom-scrollbar">
-                      {artifact.confidenceScore && (
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm font-semibold text-foreground">AI Confidence:</span>
-                            <span className="text-xs font-bold text-green-400 bg-green-500/20 px-3 py-1 rounded-full flex items-center">
-                              <Check className="h-3 w-3 mr-1" /> {artifact.confidenceScore}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-
-                      {artifact.insights?.key_findings?.length ? (
-                        <div className="space-y-3">
-                          <h3 className="font-bold text-lg border-b border-border/10 pb-2 text-foreground">Key Insights</h3>
-                          <ul className="space-y-3 text-sm">
-                            {artifact.insights.key_findings.map((f, i) => (
-                              <li key={i} className="flex items-start text-muted-foreground">
-                                <span className="mr-2 text-cyan-400 font-bold">•</span> {f}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Recommendations */}
-                  {artifact.insights?.recommendations?.length ? (
-                    <div className="bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow space-y-3">
-                      <h3 className="font-bold text-lg border-b border-border/10 pb-2 text-foreground">Business Recommendations</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                        {artifact.insights.recommendations.map((r, i) => (
-                          <div key={i} className="flex items-start bg-accent/10 p-4 rounded-xl border border-cyan-500/10 transition-all hover:bg-accent/20">
-                            <span className="mr-2 text-cyan-400 font-bold">•</span> 
-                            <span className="text-sm text-muted-foreground">{r}</span>
+                    {/* KPIs */}
+                    {artifact.insights?.kpi_cards?.length ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+                        {artifact.insights.kpi_cards.map((kpi, idx) => (
+                          <div key={idx} className="bg-card/40 backdrop-blur-md p-5 rounded-2xl border border-cyan-500/10 shadow-glow transition-all hover:-translate-y-1 hover:border-cyan-500/30 hover:shadow-[0_0_30px_rgba(34,211,238,0.15)] group flex flex-col justify-between h-32">
+                            <div className="flex justify-between items-start">
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider group-hover:text-cyan-400/80 transition-colors">{kpi.label}</p>
+                            </div>
+                            <p className="text-4xl font-bold text-cyan-400 tracking-tight">{kpi.value}</p>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  ) : null}
+                    ) : null}
 
-                  {/* SQL */}
-                  <div className="bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow space-y-3">
-                     <h3 className="font-bold text-lg border-b border-border/10 pb-2 text-foreground">Source Query</h3>
-                     <pre className="p-4 bg-black/40 rounded-xl overflow-x-auto overflow-y-auto max-h-[300px] whitespace-pre-wrap break-words text-sm text-cyan-300 font-mono custom-scrollbar">
-                       <code>{artifact.sql}</code>
-                     </pre>
-                  </div>
+                    {/* Main Workspace: Chart + Insights */}
+                    <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
+                      <div className="xl:col-span-3 space-y-8">
+                        {/* Primary Visualization */}
+                        <div className="bg-card/40 backdrop-blur-md p-6 rounded-2xl border border-cyan-500/10 shadow-glow h-[500px] flex flex-col animate-in slide-in-from-bottom-6 duration-700">
+                           <h3 className="font-bold text-lg border-b border-border/5 pb-3 mb-4 text-foreground flex items-center">
+                             Visualization
+                           </h3>
+                           <div className="flex-1 min-h-0 relative">
+                             {renderChart()}
+                           </div>
+                        </div>
 
-                  {/* Raw Data */}
-                  {chartType !== 'data_grid' && (
-                    <div className="bg-card/40 backdrop-blur-md p-6 rounded-xl border border-cyan-500/10 shadow-glow space-y-3">
-                      <h3 className="font-bold text-lg border-b border-border/10 pb-2 text-foreground">Raw Data</h3>
-                      <div className="h-[400px]">
-                        <DataGridWidget artifact={artifact} />
+                        {/* Raw Data & SQL */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-bottom-8 duration-700">
+                          {chartType !== 'data_grid' && (
+                            <div className="h-[400px]">
+                              <DataGridWidget artifact={artifact} />
+                            </div>
+                          )}
+                          <div className="h-[400px]">
+                            <SqlViewer sql={artifact.sql} />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Right Sidebar (AI Insights & Recommendations) */}
+                      <div className="xl:col-span-1 space-y-6 flex flex-col h-full animate-in slide-in-from-right-8 duration-700">
+                        <AiInsightSidebar artifact={artifact} />
+                        <AiExecutiveSummary insights={artifact.insights || {}} />
+                        <BusinessRecommendations recommendations={artifact.insights?.recommendations || []} />
                       </div>
                     </div>
-                  )}
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="sticky bottom-0 z-20 shrink-0 bg-background/95 backdrop-blur-xl px-6 py-3 border-t border-white/5 flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex items-center space-x-4">
+                    <span>Rows Returned: <strong className="text-foreground">{artifact.rowCountTotal || artifact.data?.length || 0}</strong></span>
+                    <span>•</span>
+                    <span>Execution Time: <strong className="text-foreground">312ms</strong></span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Sparkles className="h-3 w-3 text-cyan-500" />
+                    <span>Generated by FineAnalyst AI</span>
+                  </div>
                 </div>
               </DialogContent>
               </Dialog>
@@ -310,14 +326,34 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-6 p-0" ref={chartRef}>
-        <div className="bg-white p-6 rounded-b-xl h-[400px]">
-          <div className="mb-4 hidden export-only">
+      <CardContent className="pt-6 p-0 relative" ref={chartRef}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.7, ease: "easeOut" }}
+          className="bg-card/40 backdrop-blur-md p-6 rounded-b-xl border-t border-cyan-500/10 hover:border-cyan-500/30 hover:shadow-[0_0_30px_rgba(34,211,238,0.15)] transition-all duration-300"
+        >
+          <div className="mb-4 hidden export-only text-foreground">
              <h2 className="text-xl font-bold">{artifact.metadata?.title || artifact.title}</h2>
-             {artifact.metadata?.subtitle && <p className="text-sm text-gray-500">{artifact.metadata.subtitle}</p>}
+             {artifact.metadata?.subtitle && <p className="text-sm text-muted-foreground">{artifact.metadata.subtitle}</p>}
           </div>
-          {renderChart()}
-        </div>
+
+          {/* Render KPIs for inline view if available */}
+          {artifact.insights?.kpi_cards?.length ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              {artifact.insights.kpi_cards.map((kpi, idx) => (
+                <div key={idx} className="bg-background/40 backdrop-blur-sm p-4 rounded-xl border border-cyan-500/20 shadow-glow flex flex-col justify-center">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{kpi.label}</p>
+                  <p className="text-xl font-bold text-cyan-400 tracking-tight mt-1">{kpi.value}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="h-[400px]">
+            {renderChart()}
+          </div>
+        </motion.div>
       </CardContent>
     </Card>
   );

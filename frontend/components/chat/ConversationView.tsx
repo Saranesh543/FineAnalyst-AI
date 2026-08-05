@@ -25,7 +25,7 @@ export function ConversationView() {
     <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto scroll-smooth"
+        className="h-full overflow-y-auto scroll-smooth pb-[160px] md:pb-[140px]"
       >
         {messages.length === 0 ? (
           <EmptyState onSelectPrompt={(prompt) => sendMessage(prompt)} isStreaming={isStreaming} />
@@ -37,8 +37,10 @@ export function ConversationView() {
       </div>
       
       {messages.length > 0 && (
-        <div className="w-full shrink-0 relative z-10 animate-in slide-in-from-bottom-4 duration-500">
-          <Composer onSend={sendMessage} isStreaming={isStreaming} />
+        <div className="absolute bottom-0 left-0 right-0 p-4 pb-6 md:p-6 md:pb-8 bg-gradient-to-t from-background via-background/95 to-transparent z-10 pointer-events-none animate-in slide-in-from-bottom-4 duration-500">
+          <div className="max-w-[1000px] mx-auto w-full relative pointer-events-auto">
+            <Composer onSend={sendMessage} isStreaming={isStreaming} />
+          </div>
         </div>
       )}
     </div>

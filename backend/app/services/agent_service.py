@@ -155,11 +155,9 @@ class AgentService:
                 exc,
             )
 
-            return AgentErrorResponse(
-                session_id=session_id,
-                error_code=error_code,
-                message=self._humanise_error(exc),
-            )
+            import traceback
+            traceback.print_exc()
+            raise
 
     # ------------------------------------------------------------------
     # Session Management Helpers

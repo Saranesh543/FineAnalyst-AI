@@ -91,16 +91,42 @@ class ChartIntelligenceService:
 
     def _detect_intent(self, question: str) -> str:
         q_lower = question.lower()
-        if any(kw in q_lower for kw in ["top", "highest", "lowest", "best", "worst", "largest", "smallest", "ranking", "rank", "leaderboard"]):
-            return "ranking"
-        if any(kw in q_lower for kw in ["share", "percent", "proportion", "distribution"]):
-            return "distribution"
-        if any(kw in q_lower for kw in ["trend", "history", "growth", "over time"]):
-            return "trend"
-        if any(kw in q_lower for kw in ["country", "city", "state", "region"]):
-            return "geographic"
-        if "vs" in q_lower or "versus" in q_lower or "compare" in q_lower:
-            return "comparison"
+        
+        # Heatmap
+        if "matrix" in q_lower or "heatmap" in q_lower:
+            return "heatmap"
+            
+        # Scatter
+        if "vs" in q_lower or "versus" in q_lower or "correlation" in q_lower or "correlate" in q_lower:
+            return "scatter"
+            
+        # Area
+        if "growth over time" in q_lower or "growth" in q_lower:
+            return "area"
+            
+        # Line
+        if any(kw in q_lower for kw in ["revenue over time", "monthly", "quarterly", "yearly", "trend", "history", "over time"]):
+            return "line"
+            
+        # Bar (Ranking needs to override pie for "Top 5 categories")
+        if any(kw in q_lower for kw in [
+            "top", "highest", "lowest", "best", "worst", "largest", "smallest", 
+            "ranking", "rank", "leaderboard", "compare", "comparison"
+        ]):
+            return "bar"
+            
+        # Pie / Donut
+        if any(kw in q_lower for kw in [
+            "revenue by category", "revenue by product category", "revenue by country", "revenue by region", 
+            "market share", "category distribution", "percentage contribution",
+            "share", "percent", "proportion", "distribution"
+        ]):
+            return "pie"
+            
+        # Catch generic "by category" if revenue is mentioned
+        if "revenue" in q_lower and any(kw in q_lower for kw in ["category", "country", "region"]):
+            return "pie"
+            
         return "general"
 
     def select_chart(self, question: str, execution_result: SQLExecutionResponse) -> VisualizationRecommendation:
@@ -143,37 +169,57 @@ class ChartIntelligenceService:
                 y_axis = numeric_cols[1]
                 
         # 1. KPI
-        if row_count == 1 and len(numeric_cols) == 1 and len(categorical_cols) == 0:
+        if row_count == 1 and len(numeric_cols) == 1 and len(categorical_cols) == 0 and intent not in ("line", "area"):
             decision = VisualizationDecision("kpi", "Single numeric value detected.", 1.0)
             
         # 2. Data Grid
         elif row_count > 1000:
             decision = VisualizationDecision("data_grid", "Dataset > 1000 rows is best presented as a data grid.", 1.0)
             
-        # 3. Map
-        elif intent == "geographic" or any(c.lower() in ["country", "city", "state", "region", "lat", "lon"] for c in categorical_cols):
-            decision = VisualizationDecision("map", "Geographic intent or columns detected.", 0.95)
+        # 3. Explicit Intent Matching (Based on Rules)
+        elif intent == "heatmap":
+            decision = VisualizationDecision("heatmap", "Matrix comparison intent detected.", 1.0)
             
-        # 4. Scatter
-        elif intent == "comparison" and len(numeric_cols) == 2 and not categorical_cols and not datetime_cols:
-            decision = VisualizationDecision("scatter", "Two numeric distributions detected (vs comparison).", 0.9)
+        elif intent == "scatter":
+            decision = VisualizationDecision("scatter", "Correlation intent detected.", 1.0)
             
-        # 5. Time Series (Line / Area)
-        elif (intent == "trend" or datetime_cols) and numeric_cols:
-            chart = "area" if intent == "trend" else "line"
-            decision = VisualizationDecision(chart, "Trend intent or date columns detected.", 0.95)
+        elif intent == "area":
+            decision = VisualizationDecision("area", "Growth over time intent detected.", 1.0)
+            
+        elif intent == "line":
+            decision = VisualizationDecision("line", "Time series / Trend intent detected.", 1.0)
             if datetime_cols: x_axis = datetime_cols[0]
             
-        # 6. Ranking (Horizontal Bar)
-        elif intent == "ranking" and categorical_cols and numeric_cols:
-            decision = VisualizationDecision("horizontal_bar", "Ranking intent detected with category and numeric.", 0.97)
-            
-        # 7. Share / Percentage (Pie / Donut)
-        elif intent == "distribution" and categorical_cols and numeric_cols:
+        elif intent == "pie":
             chart = "donut" if "share" in question.lower() else "pie"
-            decision = VisualizationDecision(chart, "Distribution intent detected with category and numeric.", 0.95)
+            decision = VisualizationDecision(chart, "Distribution intent detected.", 1.0)
             
-        # 8. Standard Bar (Fallback for Category vs Numeric)
+        elif intent == "bar":
+            max_label_length = 0
+            if categorical_cols:
+                x_axis_candidate = categorical_cols[0]
+                if isinstance(rows[0], dict):
+                    max_label_length = max([len(str(r.get(x_axis_candidate, ""))) for r in rows[:20]])
+                else:
+                    x_idx = columns.index(x_axis_candidate)
+                    max_label_length = max([len(str(r[x_idx])) for r in rows[:20]])
+            
+            if max_label_length > 15:
+                decision = VisualizationDecision("horizontal_bar", "Ranking intent with long labels.", 1.0)
+            else:
+                decision = VisualizationDecision("bar", "Ranking / Comparison intent detected.", 1.0)
+
+        # 4. Fallbacks based on data shape if no explicit intent matched
+        elif any(c.lower() in ["country", "city", "state", "region", "lat", "lon"] for c in categorical_cols):
+            decision = VisualizationDecision("map", "Geographic columns detected.", 0.95)
+            
+        elif len(numeric_cols) == 2 and not categorical_cols and not datetime_cols:
+            decision = VisualizationDecision("scatter", "Two numeric distributions detected.", 0.9)
+            
+        elif datetime_cols and numeric_cols:
+            decision = VisualizationDecision("line", "Date columns detected.", 0.95)
+            x_axis = datetime_cols[0]
+            
         elif len(categorical_cols) >= 1 and len(numeric_cols) >= 1:
             max_label_length = 0
             if isinstance(rows[0], dict):

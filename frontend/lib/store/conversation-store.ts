@@ -164,17 +164,22 @@ export const useConversationStore = create<ConversationState>()(
       }),
 
       sendMessage: async (text: string) => {
+        const reqId = uuidv4().slice(0, 8);
+        console.log(`[Store:${reqId}] sendMessage called with text: "${text}"`);
         let { activeSessionId, sessions, updateTurn, updateSessionTitle } = get();
         
         if (!activeSessionId || !sessions[activeSessionId]) {
           activeSessionId = get().createNewSession();
+          console.log(`[Store:${reqId}] Created new session: ${activeSessionId}`);
         }
 
         const session = get().sessions[activeSessionId];
         
         // Auto-generate title on first message
         if (session.messages.length === 0) {
-          updateSessionTitle(activeSessionId, text.slice(0, 40) + (text.length > 40 ? '...' : ''));
+          const newTitle = text.slice(0, 40) + (text.length > 40 ? '...' : '');
+          console.log(`[Store:${reqId}] Auto-generating title: "${newTitle}"`);
+          updateSessionTitle(activeSessionId, newTitle);
         }
 
         // 1. Add User Turn
@@ -232,10 +237,12 @@ export const useConversationStore = create<ConversationState>()(
           const history = previousUserTurns.map(m => m.userText || "");
 
           // Parallel calls (we pass activeSessionId as backend session_id if needed, though they are decoupled. We'll use activeSessionId)
+          console.log(`[Store:${reqId}] Firing parallel fetch requests to backend...`);
           const chatPromise = agentClient.chat({ message: text, session_id: activeSessionId });
           const analyzePromise = agentClient.analyze({ question: text, history });
 
           const [chatRes, analyzeRes] = await Promise.all([chatPromise, analyzePromise]);
+          console.log(`[Store:${reqId}] Both fetch requests resolved successfully.`);
 
           const isDbIntent = analyzeRes.intent === 'database';
 
@@ -304,6 +311,10 @@ export const useConversationStore = create<ConversationState>()(
           }));
 
         } catch (error: any) {
+          console.error(`[Store:${reqId}] Error caught in sendMessage:`, error);
+          if (error.stack) {
+            console.error(`[Store:${reqId}] Error stack trace:`, error.stack);
+          }
           get().updateTurn(assistantTurnId, t => ({
             ...t,
             status: 'error',
