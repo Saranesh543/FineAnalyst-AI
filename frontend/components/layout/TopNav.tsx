@@ -27,7 +27,6 @@ export function TopNav() {
       <div className="flex items-center gap-8">
         <div className="text-xl font-medium tracking-tight flex items-center gap-1">
           <span>FineAnalyst</span>
-          <span className="text-cyan-400 font-semibold">AI</span>
         </div>
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
           {/* <DropdownMenu>

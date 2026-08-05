@@ -27,7 +27,7 @@ export function MessageList({ messages }: MessageListProps) {
                 <div className="bg-primary/10 p-1.5 rounded-full">
                   <Sparkles className="h-4 w-4" />
                 </div>
-                <span>FineAnalyst AI</span>
+                <span>FineAnalyst</span>
               </div>
               
               {/* Thinking Steps */}

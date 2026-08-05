@@ -107,6 +107,11 @@ export function RightHistoryPanel() {
         {renderSessionGroup("Last 7 Days", last7Days)}
         {renderSessionGroup("Older", older)}
       </div>
+      
+      {/* Made by FineWorks Credit */}
+      <div className="p-4 border-t border-border/10 text-xs text-muted-foreground/50 text-center">
+        Made by <span className="text-cyan-500/70 font-medium">FineWorks</span>
+      </div>
     </div>
   );
 }

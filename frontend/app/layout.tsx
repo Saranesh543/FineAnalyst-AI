@@ -8,9 +8,9 @@ import { Suspense } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  description: "Next.js chatbot template using the AI SDK.",
-  metadataBase: new URL("https://chat.vercel.ai"),
-  title: "Next.js Chatbot Template",
+  description: "Advanced business intelligence powered by you.",
+  metadataBase: new URL("http://localhost:3000"),
+  title: "FineAnalyst",
 };
 
 export const viewport = {
