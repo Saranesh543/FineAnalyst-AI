@@ -5,7 +5,9 @@ import { EvidenceArtifact } from "@/lib/types/chat";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import * as htmlToImage from 'html-to-image';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2 } from "lucide-react";
+import { Loader2, Database, Check, Copy } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 import { KpiCard } from './charts/KpiCard';
 import { BarChartWidget } from './charts/BarChartWidget';

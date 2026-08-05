@@ -83,26 +83,33 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
         # Determine status code by stage/underlying error
         status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         if exc.stage in ("sql_execution", "sql_generation", "schema", "visualization", "insight"):
-            # We'll just return 500 for most stage failures unless it's a known HTTP 422-equivalent.
-            # But standardising to 500 for orchestrator-wrapped exceptions is safest, 
-            # unless we explicitly unwrap Pydantic ValidationErrors.
             pass
             
-        # Return the EXACT error and stack trace as requested by the user
-        import traceback
-        full_trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        # Log the full stack trace internally, but do not expose it to the client
+        logger.exception("Analytics workflow failed with full trace:", exc_info=exc)
         
-        # Unpack the original error to show it in the message
-        original_msg = str(exc.original_error) if exc.original_error else str(exc)
-        
-        if exc.original_error and isinstance(exc.original_error, pydantic_ai.exceptions.UnexpectedModelBehavior):
-            status_code = status.HTTP_502_BAD_GATEWAY
+        error_code = "workflow_failed"
+        message = "An unexpected error occurred during the analytics workflow."
+
+        if exc.original_error:
+            from app.services.sql_validator_service import SQLSchemaValidationError, SQLValidationError
+            if isinstance(exc.original_error, SQLSchemaValidationError):
+                status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+                error_code = "schema_validation_error"
+                message = "I couldn't generate a valid database query. The generated SQL referenced database fields that do not exist. Please try rephrasing your request."
+            elif isinstance(exc.original_error, SQLValidationError):
+                status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+                error_code = "sql_validation_error"
+                message = f"I couldn't generate a safe or valid database query: {exc.original_error}"
+            elif isinstance(exc.original_error, pydantic_ai.exceptions.UnexpectedModelBehavior):
+                status_code = status.HTTP_502_BAD_GATEWAY
+                message = "The AI provider is currently unavailable or returned an invalid response."
             
         return JSONResponse(
             status_code=status_code,
             content=AnalyzeErrorResponse(
-                error="workflow_failed",
-                message=f"Analytics workflow failed during the {exc.stage} stage. Original Error: {original_msg}\n\nTraceback:\n{full_trace}",
+                error=error_code,
+                message=message,
                 stage=exc.stage,
             ).model_dump(mode="json"),
         )

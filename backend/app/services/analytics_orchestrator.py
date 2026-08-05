@@ -18,6 +18,7 @@ from app.services.intent_router import intent_router
 from app.services.schema_service import schema_service
 from app.services.sql_executor_service import sql_executor_service
 from app.services.sql_generator_service import sql_generator_service
+from app.services.sql_validator_service import SQLSchemaValidationError
 from app.utils.exceptions import AppException
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,19 @@ class AnalyticsOrchestratorService:
             logger.info("[%s] Generating SQL...", request_id)
             sql_response = await sql_generator_service.generate(question, schema_response)
             logger.info("[%s] SQL generated", request_id)
+        except SQLSchemaValidationError as exc:
+            logger.warning("[%s] Schema validation failed. Attempting retry...", request_id)
+            try:
+                sql_response = await sql_generator_service.generate_retry(
+                    question=question,
+                    schema=schema_response,
+                    previous_sql=getattr(exc, "sql", ""),
+                    validation_error=exc
+                )
+                logger.info("[%s] SQL generated successfully on retry", request_id)
+            except Exception as retry_exc:
+                logger.exception("[%s] Workflow failed at SQL generation retry: %s | Type: %s", request_id, retry_exc, type(retry_exc).__name__)
+                raise AnalyticsWorkflowError(f"SQL generation failed on retry: {retry_exc}", stage="sql_generation", original_error=retry_exc) from retry_exc
         except Exception as exc:
             logger.exception("[%s] Workflow failed at SQL generation: %s | Type: %s", request_id, exc, type(exc).__name__)
             raise AnalyticsWorkflowError(f"SQL generation failed: {exc}", stage="sql_generation", original_error=exc) from exc

@@ -181,8 +181,9 @@ class TestBusinessInsightService:
         exec_res = _make_exec_response(["a"], [[1]])
         vis_res = _make_vis_recommendation()
         
-        with pytest.raises(BusinessInsightError, match="API down"):
-            await service.generate_insight("Q", exec_res, vis_res)
+        res = await service.generate_insight("question", exec_res, vis_res)
+        assert res.key_findings == ["AI analysis is temporarily unavailable."]
+    
 
     def test_get_insight_agent_creates_agent_once(self):
         from app.services.business_insight_service import BusinessInsightService
@@ -510,3 +511,4 @@ def test_insight_request_from_json():
     }
     req = BusinessInsightRequest.model_validate(data)
     assert req.question == "test"
+

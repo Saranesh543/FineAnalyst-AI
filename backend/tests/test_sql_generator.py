@@ -2,7 +2,7 @@
 Unit and integration tests for the SQL Generation module.
 
 Covers:
-  - validate_sql()             — allow-list and deny-list cases
+  - validate_sql(, _make_schema())             — allow-list and deny-list cases
   - _strip_markdown()          — markdown fence removal
   - _build_schema_section()    — prompt construction
   - SQLGeneratorService.generate() — mocked AI agent
@@ -87,52 +87,55 @@ class TestValidateSqlAllowed:
     """SQL that should pass the safety validator."""
 
     def test_simple_select(self):
-        from app.services.sql_generator_service import validate_sql
-        sql = validate_sql("SELECT id, name FROM customers")
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError
+        sql = validate_sql("SELECT id, name FROM customers", _make_schema())
         assert sql.startswith("SELECT")
         assert sql.endswith(";")
 
     def test_select_with_where(self):
-        from app.services.sql_generator_service import validate_sql
-        sql = validate_sql("SELECT * FROM orders WHERE total > 100 ORDER BY total DESC LIMIT 10")
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError
+        sql = validate_sql("SELECT id, total FROM orders WHERE total > 100 ORDER BY total DESC LIMIT 10", _make_schema())
         assert "WHERE" in sql
 
     def test_select_with_join(self):
-        from app.services.sql_generator_service import validate_sql
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError
         sql = validate_sql(
             "SELECT c.name, SUM(o.total) "
             "FROM customers c JOIN orders o ON c.id = o.customer_id "
-            "GROUP BY c.name"
+            "GROUP BY c.name",
+            _make_schema()
         )
         assert "JOIN" in sql
 
     def test_with_cte(self):
-        from app.services.sql_generator_service import validate_sql
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError
         sql = validate_sql(
-            "WITH ranked AS (SELECT id, total FROM orders) SELECT * FROM ranked"
+            "WITH ranked AS (SELECT id, total FROM orders) SELECT id, total FROM ranked",
+            _make_schema()
         )
         assert sql.startswith("WITH")
 
     def test_semicolon_appended(self):
-        from app.services.sql_generator_service import validate_sql
-        sql = validate_sql("SELECT 1")
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError
+        sql = validate_sql("SELECT 1", _make_schema())
         assert sql == "SELECT 1;"
 
     def test_existing_semicolon_not_doubled(self):
-        from app.services.sql_generator_service import validate_sql
-        sql = validate_sql("SELECT 1;")
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError
+        sql = validate_sql("SELECT 1;", _make_schema())
         assert sql == "SELECT 1;"
 
     def test_case_insensitive_select(self):
-        from app.services.sql_generator_service import validate_sql
-        sql = validate_sql("select id from customers")
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError
+        sql = validate_sql("select id from customers", _make_schema())
         assert sql.lower().startswith("select")
 
     def test_group_by_having(self):
-        from app.services.sql_generator_service import validate_sql
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError
         sql = validate_sql(
-            "SELECT customer_id, COUNT(*) AS cnt FROM orders "
-            "GROUP BY customer_id HAVING cnt > 5"
+            "SELECT customer_id, COUNT(id) AS cnt FROM orders "
+            "GROUP BY customer_id HAVING cnt > 5",
+            _make_schema()
         )
         assert "HAVING" in sql.upper()
 
@@ -158,25 +161,25 @@ class TestValidateSqlForbidden:
         "EXECUTE sp_help",
     ])
     def test_forbidden_statement(self, bad_sql):
-        from app.services.sql_generator_service import validate_sql, SQLValidationError
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError, SQLValidationError
         with pytest.raises(SQLValidationError):
-            validate_sql(bad_sql)
+            validate_sql(bad_sql, _make_schema())
 
     def test_select_with_hidden_drop(self):
         """Deny-list must catch dangerous keywords even inside SELECT."""
-        from app.services.sql_generator_service import validate_sql, SQLValidationError
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError, SQLValidationError
         with pytest.raises(SQLValidationError):
-            validate_sql("SELECT * FROM orders; DROP TABLE orders;")
+            validate_sql("SELECT id FROM orders; DROP TABLE orders;", _make_schema())
 
     def test_empty_sql_raises(self):
-        from app.services.sql_generator_service import validate_sql, SQLValidationError
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError, SQLValidationError
         with pytest.raises(SQLValidationError, match="empty"):
-            validate_sql("   ")
+            validate_sql("   ", _make_schema())
 
     def test_unknown_leading_keyword_raises(self):
-        from app.services.sql_generator_service import validate_sql, SQLValidationError
-        with pytest.raises(SQLValidationError, match="not allowed"):
-            validate_sql("SHOW TABLES")
+        from app.services.sql_validator_service import validate_sql_schema as validate_sql, SQLValidationError, SQLSchemaValidationError, SQLValidationError
+        with pytest.raises(SQLValidationError, match="Only SELECT or WITH"):
+            validate_sql("SHOW TABLES", _make_schema())
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +284,7 @@ async def test_generate_returns_sql_response():
 async def test_generate_strips_markdown_fences():
     """generate() should strip ```sql ... ``` wrappers before validation."""
     mock_result = MagicMock()
-    mock_result.output = "```sql\nSELECT * FROM orders;\n```"
+    mock_result.output = "```sql\nSELECT id FROM orders;\n```"
 
     with patch(
         "app.services.sql_generator_service.SQLGeneratorService._get_agent"
@@ -296,7 +299,7 @@ async def test_generate_strips_markdown_fences():
             question="All orders", schema=_make_schema()
         )
 
-    assert result.sql == "SELECT * FROM orders;"
+    assert result.sql == "SELECT id FROM orders;"
 
 
 @pytest.mark.asyncio
@@ -556,3 +559,4 @@ def test_sql_generation_response_fields():
     assert "sql" in data
     assert "question" in data
     assert "dialect" in data
+

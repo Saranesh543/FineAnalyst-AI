@@ -40,50 +40,14 @@ from app.schemas.sql import SQLGenerationResponse
 logger = logging.getLogger(__name__)
 
 
+from app.services.sql_validator_service import SQLValidationError, SQLSchemaValidationError, validate_sql_schema
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
 
-
-class SQLValidationError(ValueError):
-    """Raised when the generated SQL fails the safety policy."""
-
-
 class SQLGenerationError(RuntimeError):
     """Raised when the AI model call fails unexpectedly."""
-
-
-# ---------------------------------------------------------------------------
-# Safety policy
-# ---------------------------------------------------------------------------
-
-# Statements that are explicitly permitted (read-only analytics queries).
-_ALLOWED_STATEMENT_PREFIXES: frozenset[str] = frozenset(
-    {"SELECT", "WITH"}
-)
-
-# Keywords that must NEVER appear anywhere in the generated SQL.
-_FORBIDDEN_KEYWORDS: frozenset[str] = frozenset(
-    {
-        "INSERT",
-        "UPDATE",
-        "DELETE",
-        "DROP",
-        "ALTER",
-        "CREATE",
-        "TRUNCATE",
-        "MERGE",
-        "EXEC",
-        "EXECUTE",
-        "CALL",
-        "REPLACE",
-        "UPSERT",
-        "GRANT",
-        "REVOKE",
-        "LOAD",
-        "COPY",
-    }
-)
 
 
 # ---------------------------------------------------------------------------
@@ -159,50 +123,8 @@ def _build_schema_section(schema: DatabaseSchemaResponse) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Safety validator
+# Safety validator (now handled by app.services.sql_validator_service)
 # ---------------------------------------------------------------------------
-
-
-def validate_sql(sql: str) -> str:
-    """
-    Validate that *sql* is a safe read-only statement.
-
-    Steps:
-    1. Strip whitespace.
-    2. Check that the first keyword is in the allow-list.
-    3. Check that no forbidden keyword appears as a whole word anywhere
-       in the statement (case-insensitive).
-
-    Returns the stripped, validated SQL on success.
-
-    Raises:
-        SQLValidationError: If any policy is violated.
-    """
-    stripped = sql.strip().rstrip(";").strip()
-
-    if not stripped:
-        raise SQLValidationError("Generated SQL is empty.")
-
-    # Check leading statement type.
-    first_word = stripped.split()[0].upper()
-    if first_word not in _ALLOWED_STATEMENT_PREFIXES:
-        raise SQLValidationError(
-            f"SQL statement type '{first_word}' is not allowed. "
-            f"Only {sorted(_ALLOWED_STATEMENT_PREFIXES)} statements are permitted."
-        )
-
-    # Scan for forbidden keywords as whole words (avoids false positives like
-    # column names that happen to start with a blocked prefix).
-    upper_sql = stripped.upper()
-    for keyword in _FORBIDDEN_KEYWORDS:
-        pattern = rf"\b{re.escape(keyword)}\b"
-        if re.search(pattern, upper_sql):
-            raise SQLValidationError(
-                f"SQL contains forbidden keyword '{keyword}'. "
-                "Only read-only SELECT/WITH queries are permitted."
-            )
-
-    return stripped + ";"
 
 
 # ---------------------------------------------------------------------------
@@ -304,10 +226,11 @@ class SQLGeneratorService:
         # Strip any markdown fences the model may have added despite instructions.
         cleaned = _strip_markdown(raw_output)
 
-        # Validate safety.
+        # Validate safety and schema via sqlglot.
         try:
-            validated_sql = validate_sql(cleaned)
-        except SQLValidationError:
+            validated_sql = validate_sql_schema(cleaned, schema)
+        except (SQLValidationError, SQLSchemaValidationError) as exc:
+            exc.sql = cleaned
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
             logger.warning(
                 "[%s] SQL validation failed | elapsed=%.1f ms | raw_output=%r",
@@ -315,7 +238,7 @@ class SQLGeneratorService:
                 elapsed_ms,
                 raw_output[:200],
             )
-            raise
+            raise exc
 
         elapsed_ms = (time.perf_counter() - t_start) * 1_000
         logger.info(
@@ -323,6 +246,87 @@ class SQLGeneratorService:
             request_id,
             elapsed_ms,
             len(validated_sql),
+        )
+
+        return SQLGenerationResponse(
+            sql=validated_sql,
+            question=question,
+            dialect=schema.dialect,
+        )
+
+    async def generate_retry(
+        self,
+        question: str,
+        schema: DatabaseSchemaResponse,
+        previous_sql: str,
+        validation_error: SQLSchemaValidationError,
+    ) -> SQLGenerationResponse:
+        """
+        Generate a validated SQL query attempting to fix a previous schema error.
+        """
+        request_id = f"sql-retry-{int(time.time() * 1000)}"
+        t_start = time.perf_counter()
+
+        logger.info(
+            "[%s] SQL retry generation request | error_type=%s | table=%s",
+            request_id,
+            validation_error.type,
+            validation_error.table,
+        )
+
+        agent = self._get_agent()
+        schema_text = _build_schema_section(schema)
+        
+        # Build structured feedback
+        feedback = f"Validation Error:\n{validation_error.args[0]}\n"
+        if validation_error.suggestions:
+            feedback += f"Allowed/Suggested alternatives:\n"
+            for s in validation_error.suggestions[:20]: # Limit to 20 to avoid context bloat
+                feedback += f"- {s}\n"
+        
+        user_prompt = (
+            f"Database Schema:\n{schema_text}\n\n"
+            f"Question: {question}\n\n"
+            f"Previous SQL:\n{previous_sql}\n\n"
+            f"{feedback}\n"
+            "Generate ONLY the corrected SQL. Do not invent tables or columns. "
+            "Return SQL only. No explanation. No markdown."
+        )
+
+        try:
+            result = await agent.run(user_prompt)
+            raw_output: str = result.output
+        except Exception as exc:
+            elapsed_ms = (time.perf_counter() - t_start) * 1_000
+            logger.exception(
+                "[%s] AI model call failed on retry | elapsed=%.1f ms | error=%s: %s",
+                request_id,
+                elapsed_ms,
+                type(exc).__name__,
+                exc,
+            )
+            raise SQLGenerationError(f"AI model call failed: {exc}") from exc
+
+        cleaned = _strip_markdown(raw_output)
+
+        try:
+            validated_sql = validate_sql_schema(cleaned, schema)
+        except (SQLValidationError, SQLSchemaValidationError) as exc:
+            exc.sql = cleaned
+            elapsed_ms = (time.perf_counter() - t_start) * 1_000
+            logger.warning(
+                "[%s] SQL validation failed on retry | elapsed=%.1f ms | raw_output=%r",
+                request_id,
+                elapsed_ms,
+                raw_output[:200],
+            )
+            raise exc
+
+        elapsed_ms = (time.perf_counter() - t_start) * 1_000
+        logger.info(
+            "[%s] SQL generated successfully on retry | elapsed=%.1f ms",
+            request_id,
+            elapsed_ms,
         )
 
         return SQLGenerationResponse(

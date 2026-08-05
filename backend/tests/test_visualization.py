@@ -70,7 +70,7 @@ class TestChartRecommenderService:
         """Line chart recommended when datetime is present and numeric data."""
         data = _make_exec_response(
             ["created_at", "total_sales"], 
-            [[datetime(2023, 1, 1), 100.5]]
+            [[datetime(2023, 1, 1), 100.5], [datetime(2023, 1, 2), 110.0]]
         )
         res = service.recommend("what is the trend?", data)
         assert res.chart == "line"
@@ -211,8 +211,8 @@ async def test_api_recommend_success():
         "question": "monthly sales trend",
         "execution_result": {
             "columns": ["month", "sales"],
-            "rows": [["2023-01-01", 100]],
-            "row_count": 1,
+            "rows": [["2023-01-01", 100], ["2023-01-02", 110]],
+            "row_count": 2,
             "execution_time_ms": 10.0
         }
     }
@@ -271,7 +271,7 @@ async def test_api_recommend_unexpected_error(monkeypatch):
         "execution_result": {
             "columns": ["a"],
             "rows": [["b"]],
-            "row_count": 1,
+            "row_count": 2,
             "execution_time_ms": 1.0
         }
     }
@@ -403,3 +403,4 @@ def test_api_recommend_empty_question():
                 columns=["a"], rows=[[1]], row_count=1, execution_time_ms=1.0
             )
         )
+

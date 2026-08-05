@@ -61,7 +61,7 @@ def mock_all_services(mock_schema, mock_sql, mock_exec, mock_vis, mock_insight, 
     with patch("app.services.analytics_orchestrator.schema_service.get_schema", new_callable=AsyncMock) as m_schema, \
          patch("app.services.analytics_orchestrator.sql_generator_service.generate", new_callable=AsyncMock) as m_sql, \
          patch("app.services.analytics_orchestrator.sql_executor_service.execute_sql", new_callable=AsyncMock) as m_exec, \
-         patch("app.services.analytics_orchestrator.chart_recommender_service.recommend") as m_vis, \
+         patch("app.services.analytics_orchestrator.chart_intelligence_service.select_chart") as m_vis, \
          patch("app.services.analytics_orchestrator.business_insight_service.generate_insight", new_callable=AsyncMock) as m_insight, \
          patch("app.services.analytics_orchestrator.intent_router.classify", new_callable=AsyncMock) as m_intent:
         
@@ -196,14 +196,14 @@ class TestAnalyticsOrchestratorService:
         caplog.set_level(logging.INFO)
         service = AnalyticsOrchestratorService()
         await service.analyze("what")
-        assert "Schema completed" in caplog.text
+        assert "Schema loaded successfully" in caplog.text
 
     async def test_logger_insight_generated(self, mock_all_services, caplog):
         import logging
         caplog.set_level(logging.INFO)
         service = AnalyticsOrchestratorService()
         await service.analyze("what")
-        assert "Insight generated" in caplog.text
+        assert "Finished" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -481,3 +481,7 @@ def test_analyze_response_from_json(mock_exec, mock_vis, mock_insight):
     }
     res = AnalyzeResponse.model_validate(data)
     assert res.question == "Q"
+
+
+
+
