@@ -4,6 +4,7 @@ Sets up standard logging for the application.
 """
 import logging
 import sys
+import os
 from app.config.settings import settings
 
 def setup_logging():
@@ -12,14 +13,18 @@ def setup_logging():
     """
     logging_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
     
+    handlers = [logging.StreamHandler(sys.stdout)]
+    
+    # Disable file logging on Render as it causes directory errors and Render captures stdout automatically.
+    # Preserve file logging for local development.
+    if not os.environ.get("RENDER") and settings.ENVIRONMENT != "production":
+        os.makedirs("logs", exist_ok=True)
+        handlers.append(logging.FileHandler("logs/app.log"))
+        
     logging.basicConfig(
         level=logging_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            # Optional: Add FileHandler to write to logs/ directory
-            logging.FileHandler("logs/app.log")
-        ]
+        handlers=handlers
     )
     
     # Set levels for noisy libraries if necessary
