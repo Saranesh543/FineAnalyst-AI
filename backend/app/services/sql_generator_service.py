@@ -265,18 +265,60 @@ class SQLGeneratorService:
         
         user_prompt = "\n".join(prompt_parts)
 
+        # -----------------------------------------------------------------------
+        # DIAGNOSTIC LOGGING — visible in uvicorn terminal on every real request
+        # -----------------------------------------------------------------------
+        logger.info(
+            "[%s] === SQL GENERATOR DIAGNOSTIC ===\n"
+            "  Model      : %s\n"
+            "  Provider   : Groq (https://api.groq.com/openai/v1)\n"
+            "  Sys chars  : %d\n"
+            "  Usr chars  : %d\n"
+            "  Approx tok : ~%d\n"
+            "  Prompt[0:1000]: %r",
+            request_id,
+            settings.GROQ_MODEL,
+            len(_SYSTEM_PROMPT),
+            len(user_prompt),
+            (len(_SYSTEM_PROMPT) + len(user_prompt)) // 4,
+            user_prompt[:1000],
+        )
+
         try:
             result = await agent.run(user_prompt)
             raw_output: str = result.output
+            logger.info(
+                "[%s] SQL LLM SUCCESS | raw_output=%r",
+                request_id,
+                raw_output[:500],
+            )
         except Exception as exc:
+            import traceback as _tb
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
-            logger.exception(
-                "[%s] AI model call failed | elapsed=%.1f ms | error=%s: %s",
+            # Log full chain: exc type, message, cause, and complete traceback
+            logger.error(
+                "[%s] === SQL LLM CALL FAILED ===\n"
+                "  elapsed_ms   : %.1f\n"
+                "  exc_type     : %s\n"
+                "  exc_message  : %s\n"
+                "  cause_type   : %s\n"
+                "  cause_msg    : %s\n"
+                "  traceback    :\n%s",
                 request_id,
                 elapsed_ms,
                 type(exc).__name__,
                 exc,
+                type(exc.__cause__).__name__ if exc.__cause__ else "None",
+                exc.__cause__ if exc.__cause__ else "None",
+                _tb.format_exc(),
             )
+            # Inspect pydantic-ai specific attributes
+            if hasattr(exc, 'status_code'):
+                logger.error("[%s]   HTTP status_code : %s", request_id, exc.status_code)
+            if hasattr(exc, 'body'):
+                logger.error("[%s]   Response body    : %s", request_id, exc.body)
+            if hasattr(exc, 'headers'):
+                logger.error("[%s]   Response headers : %s", request_id, dict(exc.headers))
             raise SQLGenerationError(
                 f"AI model call failed: {exc}"
             ) from exc
