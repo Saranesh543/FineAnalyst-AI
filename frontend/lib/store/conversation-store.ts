@@ -236,15 +236,21 @@ export const useConversationStore = create<ConversationState>()(
           const previousUserTurns = currentSession.messages.filter(m => m.role === 'user' && m.id !== userTurn.id);
           const history = previousUserTurns.map(m => m.userText || "");
 
-          // Parallel calls (we pass activeSessionId as backend session_id if needed, though they are decoupled. We'll use activeSessionId)
-          console.log(`[Store:${reqId}] Firing parallel fetch requests to backend...`);
-          const chatPromise = agentClient.chat({ message: text, session_id: activeSessionId });
-          const analyzePromise = agentClient.analyze({ question: text, history });
-
-          const [chatRes, analyzeRes] = await Promise.all([chatPromise, analyzePromise]);
-          console.log(`[Store:${reqId}] Both fetch requests resolved successfully.`);
-
+          // Sequential calls to save tokens: Call /analyze first
+          console.log(`[Store:${reqId}] Firing fetch request to /analyze...`);
+          const analyzeRes = await agentClient.analyze({ question: text, history });
+          console.log(`[Store:${reqId}] analyze request resolved successfully.`);
+          
           const isDbIntent = analyzeRes.intent === 'database';
+
+          let chatRes = null;
+          if (!isDbIntent) {
+            console.log(`[Store:${reqId}] Intent is not database. Firing fallback fetch to /agent/chat...`);
+            chatRes = await agentClient.chat({ message: text, session_id: activeSessionId });
+            console.log(`[Store:${reqId}] chat request resolved successfully.`);
+          } else {
+            console.log(`[Store:${reqId}] Intent is database. Skipping /agent/chat call to save tokens.`);
+          }
 
           // Synthesize thinking steps from analyze response
           get().updateTurn(assistantTurnId, t => ({
@@ -305,7 +311,7 @@ export const useConversationStore = create<ConversationState>()(
           get().updateTurn(assistantTurnId, t => ({
             ...t,
             status: 'complete',
-            answerText: isDbIntent ? (analyzeRes.insight?.summary || 'Analysis complete.') : chatRes.message,
+            answerText: isDbIntent ? (analyzeRes.insight?.summary || 'Analysis complete.') : (chatRes?.message || ''),
             evidence,
             followUpSuggestions: isDbIntent ? (analyzeRes.insight?.suggested_questions || analyzeRes.insight?.recommendations || []) : []
           }));

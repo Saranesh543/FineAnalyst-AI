@@ -42,12 +42,12 @@ CRITICAL DATA BINDING RULES:
 
 OUTPUT RULES:
 1. Provide a concise executive summary based STRICTLY on the rows. MAX 2 SENTENCES. NEVER mention "assumptions", "sample database", "hypothetical data", or "imaginary context". Just state the facts.
-2. Generate 3-6 key findings as concise bullet points. You MUST identify highest/lowest values, top/bottom performers, growth/decline, or significant differences if applicable.
+2. Generate 3-6 key findings as a JSON **array of strings**. Never use * or - bullet syntax. You MUST identify highest/lowest values, top/bottom performers, growth/decline, or significant differences if applicable.
 3. Generate KPI Cards from the overall data. Format them properly (e.g., format="currency", "percentage", "decimal", "compact", or "text"). Do not invent KPIs not supported by the data.
 4. NEVER perform mathematical arithmetic in the KPI card values (e.g. DO NOT output `10+20`). Always use the PRE-CALCULATED METRICS provided in the prompt, or output a single primitive float.
 5. Identify any obvious anomalies or outliers in the provided data. If none, leave empty.
-6. Recommend 3-5 actionable business recommendations derived ONLY from this data. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
-7. Generate 3-5 intelligent suggested follow-up questions (e.g., "Show monthly revenue", "Compare by country", "Revenue trend"). NEVER copy recommendations into suggested questions.
+6. Recommend 3-5 actionable business recommendations derived ONLY from this data as a JSON **array of strings**. Never use * or - bullet syntax. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
+7. Generate 3-5 intelligent suggested follow-up questions (e.g., "Show monthly revenue", "Compare by country", "Revenue trend") as a JSON **array of strings**. Never use * or - bullet syntax. NEVER copy recommendations into suggested questions.
 
 You MUST output your response as a valid JSON object matching exactly this schema:
 {
@@ -59,10 +59,10 @@ You MUST output your response as a valid JSON object matching exactly this schem
       "format": "currency|percentage|decimal|compact|text"
     }
   ],
-  "key_findings": ["String", "String"],
-  "anomalies": ["String"],
-  "recommendations": ["String"],
-  "suggested_questions": ["String"]
+  "key_findings": ["String 1", "String 2"],
+  "anomalies": ["String 1"],
+  "recommendations": ["String 1"],
+  "suggested_questions": ["String 1"]
 }
 Do not wrap the JSON in markdown code blocks. Output ONLY valid JSON.
 """
@@ -144,6 +144,23 @@ def _build_insight_prompt(
 # Service
 # ---------------------------------------------------------------------------
 
+import re
+
+def _repair_bullet_lists(raw: str) -> str:
+    """
+    Attempts to repair JSON where the LLM generated Markdown bullets (e.g. * "item")
+    instead of proper JSON arrays.
+    Converts:
+        [\n* "foo",\n* "bar"\n]
+    To:
+        ["foo", "bar"]
+    """
+    # Look for list markers inside JSON arrays.
+    # We replace `* "` or `- "` with just `"` when it follows a newline.
+    repaired = re.sub(r'^\s*[*+-]\s+"', '"', raw, flags=re.MULTILINE)
+    # Also handle the case where it might be `* 'item'`
+    repaired = re.sub(r"^\s*[*+-]\s+'", '"', repaired, flags=re.MULTILINE)
+    return repaired
 
 class BusinessInsightService:
     """Service to generate business insights from data."""
@@ -211,6 +228,9 @@ class BusinessInsightService:
             if raw_response.endswith("```"):
                 raw_response = raw_response[:-3]
             raw_response = raw_response.strip()
+            
+            # Repair malformed bullets
+            raw_response = _repair_bullet_lists(raw_response)
             
             import json
             parsed_json = json.loads(raw_response)

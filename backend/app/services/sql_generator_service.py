@@ -319,6 +319,32 @@ class SQLGeneratorService:
                 logger.error("[%s]   Response body    : %s", request_id, exc.body)
             if hasattr(exc, 'headers'):
                 logger.error("[%s]   Response headers : %s", request_id, dict(exc.headers))
+            
+            logger.error(
+                "[%s] MANDATORY LOG - EXCEPTION:\n"
+                "Prompt: %s\n"
+                "Model: %s\n"
+                "Provider: Groq\n"
+                "Schema size: %s tables\n"
+                "Raw LLM response: N/A\n"
+                "Parsed response: N/A\n"
+                "Generated SQL: N/A\n"
+                "Validation result: N/A\n"
+                "Traceback: %s\n"
+                "Exception type: %s\n"
+                "Exception message: %s\n"
+                "Root cause: %s\n"
+                "HTTP status: %s",
+                request_id,
+                user_prompt,
+                settings.GROQ_MODEL,
+                schema.table_count,
+                _tb.format_exc(),
+                type(exc).__name__,
+                exc,
+                exc.__cause__,
+                getattr(exc, 'status_code', 'N/A')
+            )
             raise SQLGenerationError(
                 f"AI model call failed: {exc}"
             ) from exc
@@ -341,6 +367,35 @@ class SQLGeneratorService:
                 elapsed_ms,
                 raw_output[:200],
             )
+            import traceback as _tb
+            logger.error(
+                "[%s] MANDATORY LOG - VALIDATION ERROR:\n"
+                "Prompt: %s\n"
+                "Model: %s\n"
+                "Provider: Groq\n"
+                "Schema size: %s tables\n"
+                "Raw LLM response: %s\n"
+                "Parsed response: %s\n"
+                "Generated SQL: %s\n"
+                "Validation result: FAILED - %s\n"
+                "Traceback: %s\n"
+                "Exception type: %s\n"
+                "Exception message: %s\n"
+                "Root cause: %s\n"
+                "HTTP status: N/A",
+                request_id,
+                user_prompt,
+                settings.GROQ_MODEL,
+                schema.table_count,
+                raw_output,
+                cleaned,
+                cleaned,
+                str(exc),
+                _tb.format_exc(),
+                type(exc).__name__,
+                exc,
+                exc.__cause__
+            )
             raise exc
 
         elapsed_ms = (time.perf_counter() - t_start) * 1_000
@@ -349,6 +404,30 @@ class SQLGeneratorService:
             request_id,
             elapsed_ms,
             len(validated_sql),
+        )
+
+        logger.info(
+            "[%s] MANDATORY LOG - SUCCESS:\n"
+            "Prompt: %s\n"
+            "Model: %s\n"
+            "Provider: Groq\n"
+            "Schema size: %s tables\n"
+            "Raw LLM response: %s\n"
+            "Parsed response: %s\n"
+            "Generated SQL: %s\n"
+            "Validation result: SUCCESS\n"
+            "Traceback: N/A\n"
+            "Exception type: N/A\n"
+            "Exception message: N/A\n"
+            "Root cause: N/A\n"
+            "HTTP status: N/A",
+            request_id,
+            user_prompt,
+            settings.GROQ_MODEL,
+            schema.table_count,
+            raw_output,
+            cleaned,
+            validated_sql
         )
 
         return SQLGenerationResponse(
@@ -408,6 +487,32 @@ class SQLGeneratorService:
                 type(exc).__name__,
                 exc,
             )
+            import traceback as _tb
+            logger.error(
+                "[%s] MANDATORY LOG - RETRY EXCEPTION:\n"
+                "Prompt: %s\n"
+                "Model: %s\n"
+                "Provider: Groq\n"
+                "Schema size: %s tables\n"
+                "Raw LLM response: N/A\n"
+                "Parsed response: N/A\n"
+                "Generated SQL: N/A\n"
+                "Validation result: N/A\n"
+                "Traceback: %s\n"
+                "Exception type: %s\n"
+                "Exception message: %s\n"
+                "Root cause: %s\n"
+                "HTTP status: %s",
+                request_id,
+                user_prompt,
+                settings.GROQ_MODEL,
+                schema.table_count,
+                _tb.format_exc(),
+                type(exc).__name__,
+                exc,
+                exc.__cause__,
+                getattr(exc, 'status_code', 'N/A')
+            )
             raise SQLGenerationError(f"AI model call failed: {exc}") from exc
 
         cleaned = _strip_markdown(raw_output)
@@ -423,6 +528,35 @@ class SQLGeneratorService:
                 elapsed_ms,
                 raw_output[:200],
             )
+            import traceback as _tb
+            logger.error(
+                "[%s] MANDATORY LOG - RETRY VALIDATION ERROR:\n"
+                "Prompt: %s\n"
+                "Model: %s\n"
+                "Provider: Groq\n"
+                "Schema size: %s tables\n"
+                "Raw LLM response: %s\n"
+                "Parsed response: %s\n"
+                "Generated SQL: %s\n"
+                "Validation result: FAILED - %s\n"
+                "Traceback: %s\n"
+                "Exception type: %s\n"
+                "Exception message: %s\n"
+                "Root cause: %s\n"
+                "HTTP status: N/A",
+                request_id,
+                user_prompt,
+                settings.GROQ_MODEL,
+                schema.table_count,
+                raw_output,
+                cleaned,
+                cleaned,
+                str(exc),
+                _tb.format_exc(),
+                type(exc).__name__,
+                exc,
+                exc.__cause__
+            )
             raise exc
 
         elapsed_ms = (time.perf_counter() - t_start) * 1_000
@@ -432,6 +566,29 @@ class SQLGeneratorService:
             elapsed_ms,
         )
 
+        logger.info(
+            "[%s] MANDATORY LOG - RETRY SUCCESS:\n"
+            "Prompt: %s\n"
+            "Model: %s\n"
+            "Provider: Groq\n"
+            "Schema size: %s tables\n"
+            "Raw LLM response: %s\n"
+            "Parsed response: %s\n"
+            "Generated SQL: %s\n"
+            "Validation result: SUCCESS\n"
+            "Traceback: N/A\n"
+            "Exception type: N/A\n"
+            "Exception message: N/A\n"
+            "Root cause: N/A\n"
+            "HTTP status: N/A",
+            request_id,
+            user_prompt,
+            settings.GROQ_MODEL,
+            schema.table_count,
+            raw_output,
+            cleaned,
+            validated_sql
+        )
         return SQLGenerationResponse(
             sql=validated_sql,
             question=question,

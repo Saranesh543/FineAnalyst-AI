@@ -22,6 +22,7 @@ from app.services.analytics_orchestrator import (
     AnalyticsWorkflowError,
     analytics_orchestrator,
 )
+from pydantic_ai.exceptions import ModelHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,15 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
         message = f"The analytics pipeline failed at stage '{exc.stage}'."
 
         original = exc.original_error
-        original_str = str(original) if original else str(exc)
+        
+        # Traverse the exception chain to find the true root cause
+        # This prevents exceptions hidden inside wrappers (like SQLGenerationError)
+        # from falling through to the generic 500 handler.
+        root_cause = original
+        while root_cause and getattr(root_cause, "__cause__", None) is not None:
+            root_cause = root_cause.__cause__
+
+        original_str = str(root_cause) if root_cause else str(exc)
 
         # Priority 1: Rate limit (429)
         if "429" in original_str or "rate limit" in original_str.lower() or "rate_limit_exceeded" in original_str.lower():
@@ -98,28 +107,28 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
             message = "The AI provider rate limit was reached. Please wait a moment and try again."
 
         # Priority 2: Known typed exceptions
-        elif original is not None:
+        elif root_cause is not None:
             from app.services.sql_validator_service import SQLSchemaValidationError, SQLValidationError
             from app.services.sql_executor_service import SQLExecutionFailedError
             import pydantic_ai.exceptions as _pai_exc
 
-            if isinstance(original, SQLSchemaValidationError):
+            if isinstance(root_cause, SQLSchemaValidationError):
                 status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
                 error_code = "schema_validation_error"
                 message = "The AI generated a query referencing columns that don't exist. Please rephrase your question."
-            elif isinstance(original, SQLValidationError):
+            elif isinstance(root_cause, SQLValidationError):
                 status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
                 error_code = "sql_validation_error"
-                message = f"Generated an invalid or unsafe SQL query: {original}"
-            elif isinstance(original, SQLExecutionFailedError):
+                message = f"Generated an invalid or unsafe SQL query: {root_cause}"
+            elif isinstance(root_cause, SQLExecutionFailedError):
                 status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
                 error_code = "sql_execution_error"
-                message = f"The database rejected the query: {original}"
-            elif isinstance(original, _pai_exc.UnexpectedModelBehavior):
+                message = f"The database rejected the query: {root_cause}"
+            elif isinstance(root_cause, _pai_exc.UnexpectedModelBehavior) or isinstance(root_cause, ModelHTTPError):
                 status_code = status.HTTP_502_BAD_GATEWAY
                 error_code = "llm_provider_error"
                 message = "The AI provider returned an unexpected response. Please try again."
-            elif isinstance(original, ValueError) and "GROQ_API_KEY" in original_str:
+            elif isinstance(root_cause, ValueError) and "GROQ_API_KEY" in original_str:
                 status_code = status.HTTP_503_SERVICE_UNAVAILABLE
                 error_code = "configuration_error"
                 message = "The AI provider API key is not configured. Contact the administrator."
@@ -140,6 +149,25 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
                 error="llm_provider_error",
                 message="The AI provider is currently unavailable or returned an invalid response.",
                 stage="ai_inference",
+            ).model_dump(mode="json"),
+        )
+    except ModelHTTPError as exc:
+        logger.exception("LLM HTTP Error: %s", exc)
+        if exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower():
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content=AnalyzeErrorResponse(
+                    error="rate_limit_exceeded",
+                    message="The AI provider rate limit was reached. Please wait a moment and try again.",
+                    stage="rate_limited",
+                ).model_dump(mode="json"),
+            )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=AnalyzeErrorResponse(
+                error="model_http_error",
+                message=f"The AI provider returned an HTTP error {exc.status_code}.",
+                stage="unknown",
             ).model_dump(mode="json"),
         )
     except Exception as exc:

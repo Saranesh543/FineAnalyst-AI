@@ -20,6 +20,7 @@ from app.services.sql_executor_service import sql_executor_service
 from app.services.sql_generator_service import sql_generator_service
 from app.services.sql_validator_service import SQLSchemaValidationError
 from app.utils.exceptions import AppException
+from pydantic_ai.exceptions import ModelHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,9 @@ class AnalyticsOrchestratorService:
                     insight=None,
                 )
         except Exception as exc:
+            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
+                logger.exception("[%s] Workflow failed at intent routing due to rate limit: %s", request_id, exc)
+                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc) from exc
             logger.exception("[%s] Workflow failed at intent routing: %s", request_id, exc)
             raise AnalyticsWorkflowError(f"Intent routing failed: {exc}", stage="intent_routing", original_error=exc) from exc
 
@@ -82,6 +86,9 @@ class AnalyticsOrchestratorService:
             schema_response = await schema_service.get_schema()
             logger.info("[%s] Schema loaded successfully", request_id)
         except Exception as exc:
+            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
+                logger.exception("[%s] Workflow failed at schema discovery due to rate limit: %s", request_id, exc)
+                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc) from exc
             logger.exception("[%s] Workflow failed at schema discovery: %s | Type: %s", request_id, exc, type(exc).__name__)
             raise AnalyticsWorkflowError(f"Schema discovery failed: {exc}", stage="schema", original_error=exc) from exc
 
@@ -103,9 +110,15 @@ class AnalyticsOrchestratorService:
                 )
                 logger.info("[%s] SQL generated successfully on retry", request_id)
             except Exception as retry_exc:
+                if isinstance(retry_exc, ModelHTTPError) and (retry_exc.status_code == 429 or "rate_limit_exceeded" in str(retry_exc).lower()):
+                    logger.exception("[%s] Workflow failed at SQL generation retry due to rate limit: %s", request_id, retry_exc)
+                    raise AnalyticsWorkflowError(f"Rate limit exceeded: {retry_exc}", stage="rate_limited", original_error=retry_exc) from retry_exc
                 logger.exception("[%s] Workflow failed at SQL generation retry: %s | Type: %s", request_id, retry_exc, type(retry_exc).__name__)
                 raise AnalyticsWorkflowError(f"SQL generation failed on retry: {retry_exc}", stage="sql_generation", original_error=retry_exc) from retry_exc
         except Exception as exc:
+            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
+                logger.exception("[%s] Workflow failed at SQL generation due to rate limit: %s", request_id, exc)
+                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc) from exc
             logger.exception("[%s] Workflow failed at SQL generation: %s | Type: %s", request_id, exc, type(exc).__name__)
             raise AnalyticsWorkflowError(f"SQL generation failed: {exc}", stage="sql_generation", original_error=exc) from exc
 
@@ -117,6 +130,9 @@ class AnalyticsOrchestratorService:
             execution_response = await sql_executor_service.execute_sql(sql_response.sql)
             logger.info("[%s] Rows returned: %d", request_id, execution_response.row_count)
         except Exception as exc:
+            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
+                logger.exception("[%s] Workflow failed at SQL execution due to rate limit: %s", request_id, exc)
+                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc) from exc
             logger.exception("[%s] Workflow failed at SQL execution: %s | Type: %s", request_id, exc, type(exc).__name__)
             raise AnalyticsWorkflowError(f"SQL execution failed: {exc}", stage="sql_execution", original_error=exc) from exc
 
@@ -133,6 +149,9 @@ class AnalyticsOrchestratorService:
             if vis_response.metadata:
                 logger.info("[%s] Metadata: title='%s', subtitle='%s'", request_id, vis_response.metadata.title, vis_response.metadata.subtitle)
         except Exception as exc:
+            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
+                logger.exception("[%s] Workflow failed at visualization recommendation due to rate limit: %s", request_id, exc)
+                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc) from exc
             logger.exception("[%s] Workflow failed at visualization recommendation: %s | Type: %s", request_id, exc, type(exc).__name__)
             raise AnalyticsWorkflowError(f"Visualization recommendation failed: {exc}", stage="visualization", original_error=exc) from exc
 
@@ -148,6 +167,9 @@ class AnalyticsOrchestratorService:
             )
             logger.info("[%s] Finished", request_id)
         except Exception as exc:
+            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
+                logger.exception("[%s] Workflow failed at insight generation due to rate limit: %s", request_id, exc)
+                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc) from exc
             logger.exception("[%s] Workflow failed at insight generation: %s | Type: %s", request_id, exc, type(exc).__name__)
             raise AnalyticsWorkflowError(f"Insight generation failed: {exc}", stage="insight", original_error=exc) from exc
 
