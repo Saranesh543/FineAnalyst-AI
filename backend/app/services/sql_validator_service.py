@@ -86,9 +86,10 @@ def validate_sql_schema(sql: str, schema: DatabaseSchemaResponse) -> str:
         if isinstance(node, (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create, exp.Alter, exp.Command)):
             raise SQLValidationError(f"Forbidden SQL node type found: {node.key}")
 
-    # 3. Reject SELECT *
+    # 3. Reject SELECT * (but allow COUNT(*))
     for node in ast.find_all(exp.Star):
-        raise SQLValidationError("SELECT * is not allowed. Please explicitly specify columns.")
+        if not isinstance(node.parent, exp.Count):
+            raise SQLValidationError("SELECT * is not allowed. Please explicitly specify columns.")
 
     # Build schema map from DatabaseSchemaResponse
     schema_tables: dict[str, set[str]] = {}

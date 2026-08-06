@@ -48,16 +48,32 @@ OUTPUT RULES:
 5. Identify any obvious anomalies or outliers in the provided data. If none, leave empty.
 6. Recommend 3-5 actionable business recommendations derived ONLY from this data. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
 7. Generate 3-5 intelligent suggested follow-up questions (e.g., "Show monthly revenue", "Compare by country", "Revenue trend"). NEVER copy recommendations into suggested questions.
+
+You MUST output your response as a valid JSON object matching exactly this schema:
+{
+  "summary": "String, max 2 sentences",
+  "kpi_cards": [
+    {
+      "label": "String",
+      "value": 0.0,
+      "format": "currency|percentage|decimal|compact|text"
+    }
+  ],
+  "key_findings": ["String", "String"],
+  "anomalies": ["String"],
+  "recommendations": ["String"],
+  "suggested_questions": ["String"]
+}
+Do not wrap the JSON in markdown code blocks. Output ONLY valid JSON.
 """
 
 
-def _get_insight_agent() -> Agent[None, BusinessInsightResponse]:
+def _get_insight_agent() -> Agent:
     """Lazy initialization of the PydanticAI agent."""
     model = get_llm_model()
     
     return Agent(
         model=model,
-        output_type=BusinessInsightResponse,
         system_prompt=_SYSTEM_PROMPT,
         retries=2,
     )
@@ -133,11 +149,11 @@ class BusinessInsightService:
     """Service to generate business insights from data."""
 
     def __init__(self) -> None:
-        self._agent: Agent[None, BusinessInsightResponse] | None = None
+        self._agent: Agent | None = None
         logger.debug("BusinessInsightService initialised.")
 
     @property
-    def agent(self) -> Agent[None, BusinessInsightResponse]:
+    def agent(self) -> Agent:
         if self._agent is None:
             self._agent = _get_insight_agent()
         return self._agent
@@ -185,7 +201,20 @@ class BusinessInsightService:
 
         try:
             result = await self.agent.run(prompt)
-            insight = result.output
+            raw_response = result.output.strip()
+            
+            # Remove markdown JSON fences if model hallucinates them
+            if raw_response.startswith("```json"):
+                raw_response = raw_response[7:]
+            elif raw_response.startswith("```"):
+                raw_response = raw_response[3:]
+            if raw_response.endswith("```"):
+                raw_response = raw_response[:-3]
+            raw_response = raw_response.strip()
+            
+            import json
+            parsed_json = json.loads(raw_response)
+            insight = BusinessInsightResponse.model_validate(parsed_json)
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t_start) * 1000
             

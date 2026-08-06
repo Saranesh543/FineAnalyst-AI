@@ -50,10 +50,9 @@ class IntentRouterService:
         if self._agent is None:
             self._agent = Agent(
                 model=get_llm_model(),
-                output_type=IntentResult,
                 system_prompt=SYSTEM_PROMPT,
             )
-            logger.info("IntentRouterService agent initialised.")
+            logger.info("IntentRouterService agent initialised (plain text mode).")
         return self._agent
 
     async def classify(self, message: str, history: list[str] | None = None) -> IntentResult:
@@ -82,10 +81,26 @@ class IntentRouterService:
         logger.debug("Classifying intent for prompt: %r", prompt[:100])
         try:
             result = await agent.run(prompt)
-            logger.info("Intent classified successfully. Validated Output: %s", result.output.model_dump_json())
-            return result.output
+            raw_response = result.output.strip().lower()
+            logger.info("Raw LLM intent response: %r", raw_response)
+            
+            # Manual parsing and validation
+            if "database" in raw_response:
+                parsed_intent = "database"
+            elif "knowledge" in raw_response:
+                parsed_intent = "knowledge"
+            elif "conversation" in raw_response:
+                parsed_intent = "conversation"
+            else:
+                logger.warning("Unrecognized intent format from LLM: %r. Defaulting to conversation.", raw_response)
+                parsed_intent = "conversation"
+                
+            logger.info("Parsed intent: %s", parsed_intent)
+            validated_output = IntentResult(intent=parsed_intent)
+            logger.info("Final IntentResult: %s", validated_output.model_dump_json())
+            return validated_output
         except Exception as exc:
-            logger.error("LLM Intent Router failed to validate intent output. Exception: %s | Type: %s", exc, type(exc).__name__)
+            logger.exception("LLM Intent Router failed to validate intent output. Exception: %s | Type: %s", exc, type(exc).__name__)
             raise
 
 # ---------------------------------------------------------------------------

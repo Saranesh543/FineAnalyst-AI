@@ -93,13 +93,14 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
             pass
             
         # Log the full stack trace internally, but do not expose it to the client
-        logger.exception("Analytics workflow failed with full trace:", exc_info=exc)
+        logger.exception("Analytics workflow failed with full trace:")
         
         error_code = "workflow_failed"
         message = "An unexpected error occurred during the analytics workflow."
 
         if exc.original_error:
             from app.services.sql_validator_service import SQLSchemaValidationError, SQLValidationError
+            from app.services.sql_executor_service import SQLExecutionFailedError
             if isinstance(exc.original_error, SQLSchemaValidationError):
                 status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
                 error_code = "schema_validation_error"
@@ -108,6 +109,10 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
                 status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
                 error_code = "sql_validation_error"
                 message = f"I couldn't generate a safe or valid database query: {exc.original_error}"
+            elif isinstance(exc.original_error, SQLExecutionFailedError):
+                status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+                error_code = "sql_execution_error"
+                message = f"I couldn't execute the generated database query: {exc.original_error}"
             elif isinstance(exc.original_error, pydantic_ai.exceptions.UnexpectedModelBehavior):
                 status_code = status.HTTP_502_BAD_GATEWAY
                 message = "The AI provider is currently unavailable or returned an invalid response."
@@ -121,7 +126,7 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
             ).model_dump(mode="json"),
         )
     except pydantic_ai.exceptions.UnexpectedModelBehavior as exc:
-        logger.error("LLM Provider failed: %s", exc)
+        logger.exception("LLM Provider failed: %s", exc)
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content=AnalyzeErrorResponse(
