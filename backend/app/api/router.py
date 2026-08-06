@@ -11,6 +11,7 @@ from app.api.sql_execute import router as sql_execute_router
 from app.api.visualization import router as visualization_router
 from app.api.insight import router as insight_router
 from app.api.analyze import router as analyze_router
+from app.api.debug import router as debug_router
 
 api_router = APIRouter()
 
@@ -23,4 +24,5 @@ api_router.include_router(sql_execute_router)
 api_router.include_router(visualization_router)
 api_router.include_router(insight_router)
 api_router.include_router(analyze_router)
+api_router.include_router(debug_router)
 

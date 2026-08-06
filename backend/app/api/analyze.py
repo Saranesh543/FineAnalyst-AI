@@ -75,48 +75,55 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
             content=response_json,
         )
     except AnalyticsWorkflowError as exc:
-        logger.warning("Analytics workflow failed at stage '%s': %s", exc.stage, exc)
-        
-        # If the failure is a known validation error (e.g., empty DB, unsafe SQL) from 
-        # a downstream service, it typically inherits ValueError or is raised as such,
-        # but to keep it simple, we use 422 if it's schema or sql_generation or sql_execution 
-        # related to user inputs, else 500. However, the requirements say "Return structured error"
-        # and "Do not expose internal exceptions." Let's map stage-specific errors broadly:
-        
-        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        message = "An unexpected error occurred during the analytics workflow."
-        
-        if exc.original_error and ("429" in str(exc.original_error) or "rate limit" in str(exc.original_error).lower()):
-            status_code = status.HTTP_429_TOO_MANY_REQUESTS
-            message = "AI Rate limit reached. Please try again in a few minutes."
-        elif exc.stage in ("sql_execution", "sql_generation", "schema", "visualization", "insight"):
-            pass
-            
-        # Log the full stack trace internally, but do not expose it to the client
-        logger.exception("Analytics workflow failed with full trace:")
-        
-        error_code = "workflow_failed"
-        message = "An unexpected error occurred during the analytics workflow."
+        # Log the full internal traceback first — visible in backend logs
+        logger.exception(
+            "Analytics workflow failed | stage=%s | exc_type=%s | exc=%s",
+            exc.stage,
+            type(exc.original_error).__name__ if exc.original_error else type(exc).__name__,
+            exc,
+        )
 
-        if exc.original_error:
+        # --- Determine HTTP status code and user-facing message ---
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        error_code = "workflow_failed"
+        message = f"The analytics pipeline failed at stage '{exc.stage}'."
+
+        original = exc.original_error
+        original_str = str(original) if original else str(exc)
+
+        # Priority 1: Rate limit (429)
+        if "429" in original_str or "rate limit" in original_str.lower() or "rate_limit_exceeded" in original_str.lower():
+            status_code = status.HTTP_429_TOO_MANY_REQUESTS
+            error_code = "rate_limit_exceeded"
+            message = "The AI provider rate limit was reached. Please wait a moment and try again."
+
+        # Priority 2: Known typed exceptions
+        elif original is not None:
             from app.services.sql_validator_service import SQLSchemaValidationError, SQLValidationError
             from app.services.sql_executor_service import SQLExecutionFailedError
-            if isinstance(exc.original_error, SQLSchemaValidationError):
+            import pydantic_ai.exceptions as _pai_exc
+
+            if isinstance(original, SQLSchemaValidationError):
                 status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
                 error_code = "schema_validation_error"
-                message = "I couldn't generate a valid database query. The generated SQL referenced database fields that do not exist. Please try rephrasing your request."
-            elif isinstance(exc.original_error, SQLValidationError):
+                message = "The AI generated a query referencing columns that don't exist. Please rephrase your question."
+            elif isinstance(original, SQLValidationError):
                 status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
                 error_code = "sql_validation_error"
-                message = f"I couldn't generate a safe or valid database query: {exc.original_error}"
-            elif isinstance(exc.original_error, SQLExecutionFailedError):
+                message = f"Generated an invalid or unsafe SQL query: {original}"
+            elif isinstance(original, SQLExecutionFailedError):
                 status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
                 error_code = "sql_execution_error"
-                message = f"I couldn't execute the generated database query: {exc.original_error}"
-            elif isinstance(exc.original_error, pydantic_ai.exceptions.UnexpectedModelBehavior):
+                message = f"The database rejected the query: {original}"
+            elif isinstance(original, _pai_exc.UnexpectedModelBehavior):
                 status_code = status.HTTP_502_BAD_GATEWAY
-                message = "The AI provider is currently unavailable or returned an invalid response."
-            
+                error_code = "llm_provider_error"
+                message = "The AI provider returned an unexpected response. Please try again."
+            elif isinstance(original, ValueError) and "GROQ_API_KEY" in original_str:
+                status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+                error_code = "configuration_error"
+                message = "The AI provider API key is not configured. Contact the administrator."
+
         return JSONResponse(
             status_code=status_code,
             content=AnalyzeErrorResponse(
