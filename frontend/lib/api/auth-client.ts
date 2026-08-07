@@ -13,6 +13,15 @@ export interface AuthResponse {
   refresh_token: string;
 }
 
+export class AuthError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = status;
+  }
+}
+
 class AuthClient {
   async login(email: string, password: string, remember_me: boolean = false): Promise<AuthResponse> {
     if (!email || !password) {
@@ -23,8 +32,8 @@ class AuthClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, remember_me }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Login failed");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new AuthError(data.detail || "Login failed", res.status);
     return data;
   }
 
@@ -37,8 +46,8 @@ class AuthClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ full_name: name, email, password }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Registration failed");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new AuthError(data.detail || "Registration failed", res.status);
     return data;
   }
 

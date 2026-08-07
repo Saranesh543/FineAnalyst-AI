@@ -49,7 +49,13 @@ export function RegisterForm() {
       toast.success("Account created successfully!");
       router.push("/");
     } catch (err: any) {
-      toast.error(err.message || "Failed to register");
+      if (err.status === 409) {
+        toast.error("An account with this email already exists. Please sign in instead.");
+      } else if (!err.status) {
+        toast.error("Network error. Please try again later.");
+      } else {
+        toast.error(err.message || "Failed to register. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }

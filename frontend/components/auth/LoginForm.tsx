@@ -28,7 +28,15 @@ export function LoginForm() {
       await login(email, password, rememberMe);
       router.push("/");
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to sign in. Please try again.");
+      if (err.status === 401 || err.status === 403) {
+        setErrorMsg("Incorrect email or password.");
+      } else if (err.status === 404 || err.message?.toLowerCase().includes("not found")) {
+        setErrorMsg("No account found. Please sign up first.");
+      } else if (!err.status) {
+        setErrorMsg("Network error. Please try again later.");
+      } else {
+        setErrorMsg(err.message || "Failed to sign in. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
