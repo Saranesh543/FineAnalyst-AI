@@ -63,7 +63,7 @@ async def register(request: Request, payload: RegisterRequest, db: AsyncSession 
     return TokenResponse(
         access_token=token,
         refresh_token=refresh_token,
-        user=UserResponse(id=user.id, full_name=user?.full_name, email=user.email, created_at=user.created_at)
+        user=UserResponse(id=user.id, full_name=user.full_name, email=user.email, created_at=user.created_at)
     )
 
 
@@ -94,7 +94,7 @@ async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depe
     return TokenResponse(
         access_token=token,
         refresh_token=refresh_token,
-        user=UserResponse(id=user.id, full_name=user?.full_name, email=user.email, created_at=user.created_at)
+        user=UserResponse(id=user.id, full_name=user.full_name, email=user.email, created_at=user.created_at)
     )
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -119,13 +119,13 @@ async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(
         access_token=token,
         refresh_token=new_refresh_token,
-        user=UserResponse(id=user.id, full_name=user?.full_name, email=user.email, created_at=user.created_at)
+        user=UserResponse(id=user.id, full_name=user.full_name, email=user.email, created_at=user.created_at)
     )
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
     """Return the current authenticated user's profile."""
-    return UserResponse(id=user.id, full_name=user?.full_name, email=user.email, created_at=user.created_at)
+    return UserResponse(id=user.id, full_name=user.full_name, email=user.email, created_at=user.created_at)
 
 
 @router.post("/forgot-password")

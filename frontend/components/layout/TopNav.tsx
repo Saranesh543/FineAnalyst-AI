@@ -99,15 +99,15 @@ export function TopNav() {
           <DropdownMenuTrigger asChild>
             <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity ml-2">
               <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold overflow-hidden">
-                {user?.full_name ? user?.full_name.charAt(0).toUpperCase() : "G"}
+                {user?.full_name ? user.full_name.charAt(0).toUpperCase() : "G"}
               </div>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </div>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem disabled className="opacity-100 font-medium cursor-default pointer-events-none">
-              <User className="mr-2 h-4 w-4" /> {user?.full_name || "Guest"}
-            </DropdownMenuItem>
+              <DropdownMenuItem disabled className="opacity-100 font-medium cursor-default pointer-events-none text-foreground/90 py-3">
+                <User className="mr-2 h-4 w-4" /> {user?.full_name || "Guest"}
+              </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive cursor-pointer" onClick={handleLogout}>
               <LogOut className="mr-2 h-4 w-4" /> Logout
             </DropdownMenuItem>

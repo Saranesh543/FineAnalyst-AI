@@ -33,7 +33,7 @@ export function SidebarUserNav({ user }: { user: { email: string; id: string; fu
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
   }, [resolvedTheme, setTheme]);
 
-  const displayName = user?.full_name || user.email;
+  const displayName = user.full_name || user.email;
 
   return (
     <SidebarMenu>

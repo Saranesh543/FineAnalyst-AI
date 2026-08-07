@@ -55,10 +55,13 @@ export interface AnalyzeResponse {
     anomalies: string[];
     recommendations: string[];
     suggested_questions?: string[];
+    detailed_analysis?: string;
+    conclusion?: string;
   };
   chart_metadata?: Record<string, any>;
   visualization_confidence?: number;
   confidence_score?: string;
+  steps?: any[];
 }
 
 export interface SchemaResponse {

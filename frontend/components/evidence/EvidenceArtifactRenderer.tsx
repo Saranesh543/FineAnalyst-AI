@@ -5,8 +5,8 @@ import { EvidenceArtifact } from "@/lib/types/chat";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import * as htmlToImage from 'html-to-image';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2, Database, Check, Copy, Sparkles } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Loader2, Database, Check, Copy, Sparkles, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 
@@ -222,7 +222,7 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
                   </TooltipTrigger>
                   <TooltipContent>Open fullscreen report</TooltipContent>
                 </Tooltip>
-                <DialogContent className="sm:max-w-[95vw] lg:max-w-[95vw] xl:max-w-[1600px] w-full max-h-[95vh] h-[95vh] flex flex-col p-0 overflow-hidden bg-background/95 backdrop-blur-3xl border-cyan-500/30 shadow-[0_0_50px_rgba(34,211,238,0.15)] rounded-2xl">
+                <DialogContent showCloseButton={false} className="sm:max-w-[95vw] lg:max-w-[95vw] xl:max-w-[1600px] w-full max-h-[95vh] h-[95vh] flex flex-col p-0 overflow-hidden bg-background/95 backdrop-blur-3xl border-cyan-500/30 shadow-[0_0_50px_rgba(34,211,238,0.15)] rounded-2xl">
                 
                 {/* Header */}
                 <DialogHeader className="sticky top-0 z-20 shrink-0 bg-background/80 backdrop-blur-xl px-6 py-4 border-b border-white/5 shadow-sm flex flex-row items-center justify-between">
@@ -251,6 +251,13 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
                     <Button variant="outline" size="sm" className="h-9 bg-black/20 border-white/10 hover:bg-white/10" onClick={downloadPNG} disabled={downloadingPNG || !artifact.data?.length}>
                       {downloadingPNG ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <span className="mr-2">🖼</span>} Export Image
                     </Button>
+                    <div className="w-px h-6 bg-white/10 mx-2" />
+                    <DialogClose asChild>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors shrink-0">
+                        <X className="h-5 w-5" />
+                        <span className="sr-only">Close</span>
+                      </Button>
+                    </DialogClose>
                   </div>
                 </DialogHeader>
                 
