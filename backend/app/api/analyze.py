@@ -139,6 +139,7 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
                 error=error_code,
                 message=message,
                 stage=exc.stage,
+                steps=exc.steps,
             ).model_dump(mode="json"),
         )
     except pydantic_ai.exceptions.UnexpectedModelBehavior as exc:

@@ -36,6 +36,7 @@ from app.services.llm_provider import get_llm_model
 from app.config.settings import settings
 from app.schemas.database_schema import DatabaseSchemaResponse
 from app.schemas.sql import SQLGenerationResponse
+from app.schemas.agent import MessageTurn
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ _SYSTEM_PROMPT = (
     "MERGE, or EXEC.\n"
     "6. Reference only tables and columns that appear in the provided schema.\n"
     "7. Always end the statement with a semicolon.\n"
+    "8. ALWAYS use `AS` to explicitly alias aggregations and calculations with clean, readable names (e.g. `COUNT(id) AS customer_count`).\n"
 )
 
 
@@ -218,7 +220,7 @@ class SQLGeneratorService:
         self,
         question: str,
         schema: DatabaseSchemaResponse,
-        history: list[str] | None = None,
+        history: list[MessageTurn] | None = None,
     ) -> SQLGenerationResponse:
         """
         Generate a validated SQL query from a natural-language question.
@@ -226,7 +228,7 @@ class SQLGeneratorService:
         Args:
             question: The user's natural-language question.
             schema:   The live database schema to constrain generation.
-            history:  Optional list of previous questions to provide context.
+            history:  Optional list of previous conversation turns to provide context.
 
         Returns:
             SQLGenerationResponse containing the validated SQL.
@@ -256,11 +258,11 @@ class SQLGeneratorService:
         
         if history and len(history) > 0:
             prompt_parts.append("Conversation History:")
-            for i, past_q in enumerate(history):
-                prompt_parts.append(f"Q{i+1}: {past_q}")
+            for i, turn in enumerate(history):
+                prompt_parts.append(f"{turn.role.value.capitalize()} (turn {i+1}): {turn.content}")
             prompt_parts.append("")
             
-        prompt_parts.append(f"Question: {question}")
+        prompt_parts.append(f"Current Question: {question}")
         prompt_parts.append("Return only the SQL query. No explanation. No markdown.")
         
         user_prompt = "\n".join(prompt_parts)

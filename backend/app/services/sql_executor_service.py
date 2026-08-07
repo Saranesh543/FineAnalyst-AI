@@ -72,6 +72,17 @@ _FORBIDDEN_KEYWORDS: frozenset[str] = frozenset(
 )
 
 
+def _clean_column_name(col: str) -> str:
+    """
+    Converts raw SQL column names into explicit display labels.
+    Ensures safe strings for frontend charting libraries by removing brackets/dots.
+    """
+    clean = col.replace("_", " ")
+    clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean.title() if clean else "Column"
+
+
 def validate_execution_sql(sql: str) -> str:
     """
     Validate that *sql* is safe to execute.
@@ -172,7 +183,19 @@ class SQLExecutorService:
                 
                 # Extract column names (if result yields rows)
                 if result.returns_rows:
-                    columns = list(result.keys())
+                    raw_columns = list(result.keys())
+                    
+                    # Deduplicate cleaned column names
+                    seen = set()
+                    for c in raw_columns:
+                        cleaned = _clean_column_name(c)
+                        base_cleaned = cleaned
+                        counter = 1
+                        while cleaned in seen:
+                            cleaned = f"{base_cleaned} {counter}"
+                            counter += 1
+                        seen.add(cleaned)
+                        columns.append(cleaned)
                     
                     # Fetch all rows and convert each tuple to a list
                     for row in result.all():

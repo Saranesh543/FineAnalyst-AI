@@ -54,6 +54,7 @@ async def chat(payload: AgentRequest) -> JSONResponse:
         result = await agent_service.process_message(
             user_message=payload.message,
             session_id=payload.session_id,
+            history=payload.history,
         )
 
         if isinstance(result, AgentErrorResponse):

@@ -10,6 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
 from app.config.logging_config import setup_logging
+from app.config.rate_limiter import limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 from app.api.router import api_router
 from app.utils.exceptions import AppException, app_exception_handler, global_exception_handler
 from app.database.session import init_db
@@ -53,6 +56,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.state.limiter = limiter
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -67,6 +72,7 @@ app.add_middleware(
 
 # Register global exception handlers
 app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
 # Include main API router

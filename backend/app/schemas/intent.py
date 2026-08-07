@@ -27,6 +27,7 @@ class Intent(str, Enum):
     CONVERSATION = "conversation"
     KNOWLEDGE = "knowledge"
     DATABASE = "database"
+    SCHEMA = "schema"
 
 
 # ---------------------------------------------------------------------------

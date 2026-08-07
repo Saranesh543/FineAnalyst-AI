@@ -12,6 +12,7 @@ import logging
 from pydantic_ai import Agent
 
 from app.schemas.intent import IntentResult
+from app.schemas.agent import MessageTurn
 from app.services.llm_provider import get_llm_model
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,11 @@ Your ONLY job is to classify the user's message into exactly one of three intent
    - Any query that requires looking at the actual database tables.
    - Example: "Show top customers", "Average salary", "Highest selling products", "Show all employees".
 
+4. schema:
+   - Questions about the database metadata, structure, tables, columns, or relationships.
+   - Any general question asking what data is available.
+   - Example: "What database do you have?", "What tables are available?", "Show me your schema", "What columns exist?", "Describe the database", "What data is stored here?"
+
 Respond strictly with the correct intent. Do not include any other text or explanations.
 """
 
@@ -55,13 +61,13 @@ class IntentRouterService:
             logger.info("IntentRouterService agent initialised (plain text mode).")
         return self._agent
 
-    async def classify(self, message: str, history: list[str] | None = None) -> IntentResult:
+    async def classify(self, message: str, history: list[MessageTurn] | None = None) -> IntentResult:
         """
         Classify the intent of the given user message.
 
         Args:
             message: Raw user message.
-            history: Optional list of previous user messages.
+            history: Optional list of previous conversation turns.
 
         Returns:
             IntentResult containing the detected intent.
@@ -71,7 +77,7 @@ class IntentRouterService:
         if history and len(history) > 0:
             prompt_parts = ["Conversation History:"]
             for i, past_msg in enumerate(history):
-                prompt_parts.append(f"User (turn {i+1}): {past_msg}")
+                prompt_parts.append(f"{past_msg.role.value.capitalize()} (turn {i+1}): {past_msg.content}")
             prompt_parts.append("")
             prompt_parts.append(f"Current Message: {message}")
             prompt = "\n".join(prompt_parts)
@@ -85,7 +91,9 @@ class IntentRouterService:
             logger.info("Raw LLM intent response: %r", raw_response)
             
             # Manual parsing and validation
-            if "database" in raw_response:
+            if "schema" in raw_response:
+                parsed_intent = "schema"
+            elif "database" in raw_response:
                 parsed_intent = "database"
             elif "knowledge" in raw_response:
                 parsed_intent = "knowledge"

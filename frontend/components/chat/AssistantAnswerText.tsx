@@ -2,6 +2,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Streamdown } from "streamdown";
+import { code } from "@streamdown/code";
+import { math } from "@streamdown/math";
+import { mermaid } from "@streamdown/mermaid";
 
 interface AssistantAnswerTextProps {
   text?: string;
@@ -43,7 +47,12 @@ export function AssistantAnswerText({ text, isStreaming }: AssistantAnswerTextPr
 
   return (
     <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none prose-p:leading-relaxed">
-      {displayedText || text}
+      <Streamdown 
+        mode={displayedText.length < (text?.length || 0) || isStreaming ? "streaming" : "static"}
+        plugins={{ code, math, mermaid }}
+      >
+        {displayedText || text || ""}
+      </Streamdown>
     </div>
   );
 }

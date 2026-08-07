@@ -17,10 +17,8 @@ export function ForgotPasswordForm() {
     setIsLoading(true);
     try {
       const res = await authClient.forgotPassword(email);
-      if (res.success) {
-        setIsSent(true);
-        toast.success(res.message);
-      }
+      setIsSent(true);
+      toast.success(res.message);
     } catch (err: any) {
       toast.error(err.message || "Failed to process request");
     } finally {

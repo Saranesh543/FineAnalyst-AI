@@ -2,12 +2,10 @@
 
 import { useState } from "react";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { authClient } from "@/lib/api/auth-client";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { toast } from "sonner";
 
 export function LoginForm() {
   const { login } = useAuthStore();
@@ -15,18 +13,22 @@ export function LoginForm() {
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const isNoAccountError = errorMsg?.toLowerCase().includes("no account found");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
     setIsLoading(true);
     try {
-      const res = await authClient.login(email, password);
-      login(res.user, res.accessToken);
-      toast.success("Welcome back!");
+      await login(email, password, rememberMe);
       router.push("/");
     } catch (err: any) {
-      toast.error(err.message || "Failed to login");
+      setErrorMsg(err.message || "Failed to sign in. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -48,7 +50,7 @@ export function LoginForm() {
             type="email" 
             required
             value={email}
-            onChange={e => setEmail(e.target.value)}
+            onChange={e => { setEmail(e.target.value); setErrorMsg(null); }}
             className="w-full h-11 px-4 rounded-xl bg-background border border-border/10 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all text-sm text-foreground"
             placeholder="name@example.com"
           />
@@ -61,15 +63,55 @@ export function LoginForm() {
               Forgot password?
             </Link>
           </div>
-          <input 
-            type="password" 
-            required
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className="w-full h-11 px-4 rounded-xl bg-background border border-border/10 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all text-sm text-foreground"
-            placeholder="••••••••"
-          />
+          <div className="relative">
+            <input 
+              type={showPassword ? "text" : "password"} 
+              required
+              value={password}
+              onChange={e => { setPassword(e.target.value); setErrorMsg(null); }}
+              className="w-full h-11 pl-4 pr-10 rounded-xl bg-background border border-border/10 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all text-sm text-foreground"
+              placeholder="••••••••"
+            />
+            <button 
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
+
+        <div className="flex items-center space-x-2 ml-1">
+          <input 
+            type="checkbox" 
+            id="rememberMe"
+            checked={rememberMe}
+            onChange={e => setRememberMe(e.target.checked)}
+            className="rounded border-border/20 text-cyan-500 focus:ring-cyan-500/50 bg-background"
+          />
+          <label htmlFor="rememberMe" className="text-xs text-muted-foreground cursor-pointer">
+            Remember me
+          </label>
+        </div>
+
+        {/* Inline error banner */}
+        {errorMsg && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              {errorMsg}
+              {isNoAccountError && (
+                <>
+                  {" "}
+                  <Link href="/register" className="underline underline-offset-2 font-medium text-red-300 hover:text-red-200">
+                    Sign up here.
+                  </Link>
+                </>
+              )}
+            </span>
+          </div>
+        )}
 
         <Button 
           type="submit" 

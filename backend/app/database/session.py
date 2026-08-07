@@ -34,5 +34,10 @@ async def init_db():
     Initialize the database, creating all tables.
     (Note: In a production environment, use Alembic for migrations instead.)
     """
+    # Import models so they register with Base.metadata
+    import app.models.user  # noqa: F401
+    import app.models.chat  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+

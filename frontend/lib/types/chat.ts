@@ -1,9 +1,10 @@
 export interface ThinkingStep {
   id: string
-  kind: "schema_lookup" | "sql_generation" | "sql_execution" | "chart_recommendation" | "insight_generation"
+  kind: "intent_routing" | "schema_lookup" | "schema_discovery" | "sql_generation" | "sql_execution" | "chart_recommendation" | "visualization" | "insight_generation" | string
   label: string
-  status: "pending" | "running" | "done" | "error"
+  status: "pending" | "running" | "done" | "error" | "skipped"
   detail?: string
+  durationMs?: number
 }
 
 export interface EvidenceArtifact {

@@ -61,7 +61,11 @@ class BusinessInsightResponse(BaseModel):
     )
     key_findings: list[str] = Field(
         default_factory=list,
-        description="Key findings derived from the data (3-6 concise bullet points)."
+        description="Key findings derived from the data (3-6 concise bullet points). Highlight important values using bold."
+    )
+    detailed_analysis: str = Field(
+        default="",
+        description="Detailed explanation of the findings in paragraphs."
     )
     anomalies: list[str] = Field(
         default_factory=list,
@@ -74,6 +78,10 @@ class BusinessInsightResponse(BaseModel):
     suggested_questions: list[str] = Field(
         default_factory=list,
         description="Intelligent follow-up analytical questions (3-5 bullet points)."
+    )
+    conclusion: str = Field(
+        default="",
+        description="One sentence summary of the entire analysis."
     )
 
 

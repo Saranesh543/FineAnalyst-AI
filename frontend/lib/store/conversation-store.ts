@@ -1,6 +1,4 @@
-// RESOLUTION: 5. Context/Memory: Purely implicit in backend prompt history. 7. Flowchart data: Insight generation emits only metric-answer-shaped data.
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { Turn, ThinkingStep, EvidenceArtifact } from '../types/chat';
 import { agentClient } from '../api/agent-client';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 export interface ConversationSession {
   id: string;
   title: string;
+  isCustomTitle?: boolean;
   createdAt: string;
   updatedAt: string;
   messages: Turn[];
@@ -16,339 +15,390 @@ export interface ConversationSession {
 interface ConversationState {
   activeSessionId: string | null;
   sessions: Record<string, ConversationSession>;
+  isInitializing: boolean;
   
   sendMessage: (text: string) => Promise<void>;
   updateTurn: (id: string, updater: (turn: Turn) => Turn) => void;
-  createNewSession: () => string;
+  createNewSession: () => Promise<string>;
   switchSession: (id: string) => void;
-  deleteSession: (id: string) => void;
-  updateSessionTitle: (id: string, title: string) => void;
+  deleteSession: (id: string) => Promise<void>;
+  updateSessionTitle: (id: string, title: string, isCustom?: boolean) => Promise<void>;
   
-  // Per-user isolation
-  activeUserId: string | null;
-  userSessions: Record<string, {
-    activeSessionId: string | null;
-    sessions: Record<string, ConversationSession>;
-  }>;
-  syncUser: (userId: string | null) => void;
+  init: (userId: string | null) => Promise<void>;
 }
 
-export const useConversationStore = create<ConversationState>()(
-  persist(
-    (set, get) => ({
-      activeSessionId: null,
-      sessions: {},
-      activeUserId: null,
-      userSessions: {},
+export const useConversationStore = create<ConversationState>()((set, get) => ({
+  activeSessionId: null,
+  sessions: {},
+  isInitializing: true,
 
-      syncUser: (userId: string | null) => set((state) => {
-        if (state.activeUserId === userId) return state;
-        
-        const nextUserSessions = { ...state.userSessions };
-        
-        // Save current view to the departing user's bucket
-        if (state.activeUserId) {
-          nextUserSessions[state.activeUserId] = {
-            activeSessionId: state.activeSessionId,
-            sessions: state.sessions
-          };
-        }
-        
-        // Load the arriving user's bucket or empty state
-        let nextActiveSessionId = null;
-        let nextSessions = {};
-        
-        if (userId && nextUserSessions[userId]) {
-          nextActiveSessionId = nextUserSessions[userId].activeSessionId;
-          nextSessions = nextUserSessions[userId].sessions;
-        }
-        
-        return {
-          activeUserId: userId,
-          activeSessionId: nextActiveSessionId,
-          sessions: nextSessions,
-          userSessions: nextUserSessions
+  init: async (userId: string | null) => {
+    set({ isInitializing: true });
+    
+    if (!userId) {
+      // Clear sessions on logout
+      set({
+        sessions: {},
+        activeSessionId: null,
+        isInitializing: false
+      });
+      return;
+    }
+    
+    try {
+      const backendSessions = await agentClient.fetchSessions();
+      const sessionsMap: Record<string, ConversationSession> = {};
+      
+      let latestSessionId = null;
+      let latestTime = 0;
+      
+      for (const bs of backendSessions) {
+        // Hydrate each session
+        const hydratedSession: ConversationSession = {
+          id: bs.id,
+          title: bs.title,
+          isCustomTitle: bs.isCustomTitle,
+          createdAt: bs.created_at,
+          updatedAt: bs.updated_at,
+          messages: bs.messages || []
         };
-      }),
-
-      createNewSession: () => {
-        const id = uuidv4();
-        const now = new Date().toISOString();
-        const newSession: ConversationSession = {
-          id,
-          title: "New Chat",
-          createdAt: now,
-          updatedAt: now,
-          messages: []
-        };
-        set((state) => ({
-          activeSessionId: id,
-          sessions: {
-            ...state.sessions,
-            [id]: newSession
-          }
-        }));
-        return id;
-      },
-
-      switchSession: (id: string) => {
-        set({ activeSessionId: id });
-      },
-
-      deleteSession: (id: string) => {
-        set((state) => {
-          const newSessions = { ...state.sessions };
-          delete newSessions[id];
-          
-          let newActiveId = state.activeSessionId;
-          if (state.activeSessionId === id) {
-            const remainingIds = Object.keys(newSessions).sort((a, b) => 
-              new Date(newSessions[b].updatedAt).getTime() - new Date(newSessions[a].updatedAt).getTime()
-            );
-            newActiveId = remainingIds.length > 0 ? remainingIds[0] : null;
-          }
-
-          if (!newActiveId) {
-            // If no sessions remain, create an empty one per requirements
-            const newId = uuidv4();
-            const now = new Date().toISOString();
-            newSessions[newId] = {
-              id: newId,
-              title: "New Chat",
-              createdAt: now,
-              updatedAt: now,
-              messages: []
-            };
-            newActiveId = newId;
-          }
-
-          return {
-            sessions: newSessions,
-            activeSessionId: newActiveId
-          };
-        });
-      },
-
-      updateSessionTitle: (id: string, title: string) => {
-        set((state) => {
-          const session = state.sessions[id];
-          if (!session) return state;
-          return {
-            sessions: {
-              ...state.sessions,
-              [id]: {
-                ...session,
-                title,
-                updatedAt: new Date().toISOString()
-              }
-            }
-          };
-        });
-      },
-
-      updateTurn: (id, updater) => set((state) => {
-        if (!state.activeSessionId) return state;
-        const session = state.sessions[state.activeSessionId];
-        if (!session) return state;
-
-        return {
-          sessions: {
-            ...state.sessions,
-            [state.activeSessionId]: {
-              ...session,
-              updatedAt: new Date().toISOString(),
-              messages: session.messages.map(m => m.id === id ? updater(m) : m)
-            }
-          }
-        };
-      }),
-
-      sendMessage: async (text: string) => {
-        const reqId = uuidv4().slice(0, 8);
-        console.log(`[Store:${reqId}] sendMessage called with text: "${text}"`);
-        let { activeSessionId, sessions, updateTurn, updateSessionTitle } = get();
+        sessionsMap[bs.id] = hydratedSession;
         
-        if (!activeSessionId || !sessions[activeSessionId]) {
-          activeSessionId = get().createNewSession();
-          console.log(`[Store:${reqId}] Created new session: ${activeSessionId}`);
-        }
-
-        const session = get().sessions[activeSessionId];
-        
-        // Auto-generate title on first message
-        if (session.messages.length === 0) {
-          const newTitle = text.slice(0, 40) + (text.length > 40 ? '...' : '');
-          console.log(`[Store:${reqId}] Auto-generating title: "${newTitle}"`);
-          updateSessionTitle(activeSessionId, newTitle);
-        }
-
-        // 1. Add User Turn
-        const userTurn: Turn = {
-          id: uuidv4(),
-          role: 'user',
-          createdAt: new Date().toISOString(),
-          userText: text,
-          status: 'complete'
-        };
-        
-        // 2. Add Assistant Turn (streaming)
-        const assistantTurnId = uuidv4();
-        const assistantTurn: Turn = {
-          id: assistantTurnId,
-          role: 'assistant',
-          createdAt: new Date().toISOString(),
-          status: 'streaming',
-          thinkingSteps: [],
-          answerText: '',
-          evidence: []
-        };
-
-        set((state) => {
-          if (!state.activeSessionId) return state;
-          const curSession = state.sessions[state.activeSessionId];
-          return {
-            sessions: {
-              ...state.sessions,
-              [state.activeSessionId]: {
-                ...curSession,
-                updatedAt: new Date().toISOString(),
-                messages: [...curSession.messages, userTurn, assistantTurn]
-              }
-            }
-          };
-        });
-
-        // Helper to add thinking step
-        const appendThinking = (step: Omit<ThinkingStep, 'id'>) => {
-          const id = uuidv4();
-          get().updateTurn(assistantTurnId, t => ({
-            ...t,
-            thinkingSteps: [...(t.thinkingSteps || []), { id, ...step }]
-          }));
-        };
-
-        try {
-          appendThinking({ kind: 'schema_lookup', label: 'Analyzing schema', status: 'running' });
-
-          // Pass clean question and history array separately
-          // Only pass history from the current session
-          const currentSession = get().sessions[activeSessionId!];
-          const previousUserTurns = currentSession.messages.filter(m => m.role === 'user' && m.id !== userTurn.id);
-          const history = previousUserTurns.map(m => m.userText || "");
-
-          // Sequential calls to save tokens: Call /analyze first
-          console.log(`[Store:${reqId}] Firing fetch request to /analyze...`);
-          const analyzeRes = await agentClient.analyze({ question: text, history });
-          console.log(`[Store:${reqId}] analyze request resolved successfully.`);
-          
-          const isDbIntent = analyzeRes.intent === 'database';
-
-          let chatRes = null;
-          if (!isDbIntent) {
-            console.log(`[Store:${reqId}] Intent is not database. Firing fallback fetch to /agent/chat...`);
-            chatRes = await agentClient.chat({ message: text, session_id: activeSessionId });
-            console.log(`[Store:${reqId}] chat request resolved successfully.`);
-          } else {
-            console.log(`[Store:${reqId}] Intent is database. Skipping /agent/chat call to save tokens.`);
-          }
-
-          // Synthesize thinking steps from analyze response
-          get().updateTurn(assistantTurnId, t => ({
-            ...t,
-            thinkingSteps: isDbIntent
-              ? t.thinkingSteps?.map(s => s.kind === 'schema_lookup' ? { ...s, status: 'done' } : s)
-              : t.thinkingSteps?.filter(s => s.kind !== 'schema_lookup')
-          }));
-
-          if (analyzeRes.sql) {
-            appendThinking({ kind: 'sql_generation', label: 'Wrote SQL query', status: 'done', detail: analyzeRes.sql });
-          }
-          if (analyzeRes.execution) {
-            appendThinking({ kind: 'sql_execution', label: `Ran query (${analyzeRes.execution.row_count} rows)`, status: 'done' });
-          }
-          if (analyzeRes.visualization) {
-            appendThinking({ kind: 'chart_recommendation', label: `Recommended ${analyzeRes.visualization.chart} chart`, status: 'done' });
-          }
-          if (analyzeRes.insight) {
-            appendThinking({ kind: 'insight_generation', label: 'Generated insights', status: 'done' });
-          }
-
-          // Convert analyzeRes.execution + visualization to EvidenceArtifact
-          const evidence: EvidenceArtifact[] = [];
-          if (analyzeRes.execution && analyzeRes.visualization) {
-            const artifactChartType = analyzeRes.visualization.chart;
-            const artifactTitle = analyzeRes.visualization.metadata?.title || 'Result Data';
-            const artifactMetadata = analyzeRes.visualization.metadata;
-            
-            evidence.push({
-              id: uuidv4(),
-              kind: 'chart',
-              chartType: artifactChartType as any,
-              data: [], // populated below
-              sql: analyzeRes.sql,
-              rowCountTotal: analyzeRes.execution.row_count,
-              rowSample: [],
-              title: artifactTitle,
-              insights: analyzeRes.insight,
-              confidenceScore: analyzeRes.confidence_score,
-              metadata: artifactMetadata
-            });
-          }
-
-          // Actually map rows if they are arrays, to Record based on columns
-          if (evidence.length > 0 && Array.isArray(analyzeRes.execution.rows)) {
-            const columns = analyzeRes.execution.columns || [];
-            evidence[0].data = analyzeRes.execution.rows.map(row => {
-              const obj: Record<string, any> = {};
-              columns.forEach((col, i) => {
-                obj[col] = row[i];
-              });
-              return obj;
-            });
-            evidence[0].rowSample = evidence[0].data.slice(0, 5);
-          }
-
-          get().updateTurn(assistantTurnId, t => ({
-            ...t,
-            status: 'complete',
-            answerText: isDbIntent ? (analyzeRes.insight?.summary || 'Analysis complete.') : (chatRes?.message || ''),
-            evidence,
-            followUpSuggestions: isDbIntent ? (analyzeRes.insight?.suggested_questions || analyzeRes.insight?.recommendations || []) : []
-          }));
-
-        } catch (error: any) {
-          console.error(`[Store:${reqId}] Error caught in sendMessage:`, error);
-          if (error.stack) {
-            console.error(`[Store:${reqId}] Error stack trace:`, error.stack);
-          }
-          get().updateTurn(assistantTurnId, t => ({
-            ...t,
-            status: 'error',
-            answerText: `I encountered an error: ${error.message}`
-          }));
+        const time = new Date(bs.updated_at).getTime();
+        if (time > latestTime) {
+          latestTime = time;
+          latestSessionId = bs.id;
         }
       }
-    }),
-    {
-      name: 'fineanalyst_chat_history',
-      partialize: (state) => ({
-        activeSessionId: state.activeSessionId,
-        sessions: Object.fromEntries(
-          Object.entries(state.sessions).map(([id, session]) => [
-            id,
-            {
-              ...session,
-              messages: session.messages.map(m => {
-                // Do not persist streaming or running steps. Convert them to error if they were left hanging
-                if (m.status === 'streaming') {
-                  return { ...m, status: 'error', answerText: 'Session interrupted before completion.' };
-                }
-                return m;
-              })
-            }
-          ])
-        )
-      })
+      
+      set({
+        sessions: sessionsMap,
+        activeSessionId: latestSessionId,
+        isInitializing: false
+      });
+      
+    } catch (error) {
+      console.error("[Store] Failed to initialize sessions from backend:", error);
+      set({ isInitializing: false });
     }
-  )
-);
+  },
+
+  createNewSession: async () => {
+    try {
+      const bs = await agentClient.createSession();
+      const newSession: ConversationSession = {
+        id: bs.id,
+        title: bs.title,
+        isCustomTitle: false,
+        createdAt: bs.created_at,
+        updatedAt: bs.updated_at,
+        messages: []
+      };
+      
+      set((state) => ({
+        activeSessionId: bs.id,
+        sessions: {
+          ...state.sessions,
+          [bs.id]: newSession
+        }
+      }));
+      return bs.id;
+    } catch (error) {
+      console.error("[Store] Failed to create backend session:", error);
+      // Fallback optimistic UI
+      const id = uuidv4();
+      const now = new Date().toISOString();
+      const newSession: ConversationSession = {
+        id, title: "New Chat", createdAt: now, updatedAt: now, messages: []
+      };
+      set((state) => ({
+        activeSessionId: id,
+        sessions: { ...state.sessions, [id]: newSession }
+      }));
+      return id;
+    }
+  },
+
+  switchSession: (id: string) => {
+    set({ activeSessionId: id });
+  },
+
+  deleteSession: async (id: string) => {
+    try {
+      await agentClient.deleteSession(id);
+    } catch (error) {
+      console.error("[Store] Failed to delete backend session:", error);
+    }
+    
+    set((state) => {
+      const newSessions = { ...state.sessions };
+      delete newSessions[id];
+      
+      let newActiveId = state.activeSessionId;
+      if (state.activeSessionId === id) {
+        const remainingIds = Object.keys(newSessions).sort((a, b) => 
+          new Date(newSessions[b].updatedAt).getTime() - new Date(newSessions[a].updatedAt).getTime()
+        );
+        newActiveId = remainingIds.length > 0 ? remainingIds[0] : null;
+      }
+      return { sessions: newSessions, activeSessionId: newActiveId };
+    });
+  },
+
+  updateSessionTitle: async (id: string, title: string, isCustom?: boolean) => {
+    // Optimistic
+    set((state) => {
+      const session = state.sessions[id];
+      if (!session) return state;
+      return {
+        sessions: {
+          ...state.sessions,
+          [id]: {
+            ...session,
+            title,
+            isCustomTitle: isCustom !== undefined ? isCustom : session.isCustomTitle,
+            updatedAt: new Date().toISOString()
+          }
+        }
+      };
+    });
+    
+    try {
+      await agentClient.updateSessionTitle(id, title, isCustom);
+    } catch (error) {
+      console.error("[Store] Failed to update backend session title:", error);
+    }
+  },
+
+  updateTurn: (id, updater) => set((state) => {
+    if (!state.activeSessionId) return state;
+    const session = state.sessions[state.activeSessionId];
+    if (!session) return state;
+
+    return {
+      sessions: {
+        ...state.sessions,
+        [state.activeSessionId]: {
+          ...session,
+          updatedAt: new Date().toISOString(),
+          messages: session.messages.map(m => m.id === id ? updater(m) : m)
+        }
+      }
+    };
+  }),
+
+  sendMessage: async (text: string) => {
+    const reqId = uuidv4().slice(0, 8);
+    let { activeSessionId, sessions, updateTurn, updateSessionTitle } = get();
+    
+    if (!activeSessionId || !sessions[activeSessionId]) {
+      activeSessionId = await get().createNewSession();
+    }
+
+    // 1. Add User Turn
+    const userTurn: Turn = {
+      id: uuidv4(),
+      role: 'user',
+      createdAt: new Date().toISOString(),
+      userText: text,
+      status: 'complete'
+    };
+    
+    // Save user turn to backend
+    agentClient.saveTurn(activeSessionId, userTurn).catch(e => console.error("Failed to save user turn", e));
+    
+    // 2. Add Assistant Turn (streaming)
+    const assistantTurnId = uuidv4();
+    const assistantTurn: Turn = {
+      id: assistantTurnId,
+      role: 'assistant',
+      createdAt: new Date().toISOString(),
+      status: 'streaming',
+      thinkingSteps: [],
+      answerText: '',
+      evidence: []
+    };
+
+    set((state) => {
+      if (!state.activeSessionId) return state;
+      const curSession = state.sessions[state.activeSessionId];
+      return {
+        sessions: {
+          ...state.sessions,
+          [state.activeSessionId]: {
+            ...curSession,
+            updatedAt: new Date().toISOString(),
+            messages: [...curSession.messages, userTurn, assistantTurn]
+          }
+        }
+      };
+    });
+
+    // Faked animation setup
+    let isFetching = true;
+    const optimisticSteps: Omit<ThinkingStep, 'id'>[] = [];
+    const baseLabels = [
+       { kind: 'intent_routing', label: 'Understanding Question' },
+       { kind: 'schema_discovery', label: 'Understanding Your Data' },
+       { kind: 'sql_generation', label: 'Creating SQL Query' },
+       { kind: 'sql_execution', label: 'Running Query' },
+       { kind: 'visualization', label: 'Creating Chart' },
+       { kind: 'insight_generation', label: 'Generating Insights' }
+    ];
+
+    (async () => {
+       for (const step of baseLabels) {
+          if (!isFetching) break;
+          if (optimisticSteps.length > 0) optimisticSteps[optimisticSteps.length - 1].status = 'done';
+          optimisticSteps.push({ ...step, status: 'running' } as any);
+          get().updateTurn(assistantTurnId, t => ({
+             ...t,
+             thinkingSteps: optimisticSteps.map((s, idx) => ({ id: `opt-${idx}`, ...s })) as ThinkingStep[]
+          }));
+          await new Promise(r => setTimeout(r, 1200)); 
+       }
+    })();
+
+    try {
+      const currentSession = get().sessions[activeSessionId!];
+      const previousTurns = currentSession.messages.filter(m => m.id !== userTurn.id && m.id !== assistantTurnId);
+      const recentTurns = previousTurns.slice(-20);
+      const history = recentTurns.map(m => {
+        let content = m.role === 'user' ? (m.userText || "") : (m.answerText || "Analysis complete.");
+        if (m.role === 'assistant' && m.evidence && m.evidence.length > 0) {
+          const ev = m.evidence[0];
+          if (ev.sql) content += `\n\n[Previous SQL Query Executed: ${ev.sql}]`;
+        }
+        return { role: m.role, content };
+      });
+
+      const analyzeRes = await agentClient.analyze({ question: text, history });
+      isFetching = false;
+      const isDbIntent = analyzeRes.intent === 'database' || analyzeRes.intent === 'schema';
+
+      let chatRes = null;
+      if (!isDbIntent) {
+        chatRes = await agentClient.chat({ message: text, session_id: activeSessionId, history });
+      }
+
+      get().updateTurn(assistantTurnId, t => ({
+        ...t,
+        thinkingSteps: analyzeRes.steps?.map((s: any) => ({
+          id: uuidv4(),
+          kind: s.name,
+          label: s.name, 
+          status: s.status,
+          detail: s.detail,
+          durationMs: s.duration_ms
+        })) || []
+      }));
+
+      const evidence: EvidenceArtifact[] = [];
+      if (analyzeRes.execution && analyzeRes.visualization) {
+        const artifactChartType = analyzeRes.visualization.chart;
+        const artifactTitle = analyzeRes.visualization.metadata?.title || 'Result Data';
+        const artifactMetadata = analyzeRes.visualization.metadata;
+        
+        evidence.push({
+          id: uuidv4(),
+          kind: 'chart',
+          chartType: artifactChartType as any,
+          data: [],
+          sql: analyzeRes.sql,
+          rowCountTotal: analyzeRes.execution.row_count,
+          rowSample: [],
+          title: artifactTitle,
+          insights: analyzeRes.insight,
+          confidenceScore: analyzeRes.confidence_score,
+          metadata: artifactMetadata
+        });
+      }
+
+      if (evidence.length > 0 && Array.isArray(analyzeRes.execution.rows)) {
+        const columns = analyzeRes.execution.columns || [];
+        evidence[0].data = analyzeRes.execution.rows.map(row => {
+          const obj: Record<string, any> = {};
+          columns.forEach((col, i) => obj[col] = row[i]);
+          return obj;
+        });
+        evidence[0].rowSample = evidence[0].data.slice(0, 5);
+      }
+
+      let answerText = chatRes?.message || '';
+      if (isDbIntent && analyzeRes.insight) {
+        const ins = analyzeRes.insight;
+        answerText = `### Executive Summary\n${ins.summary}\n\n`;
+        if (ins.key_findings?.length > 0) answerText += `### Key Insights\n${ins.key_findings.map((k: string) => `- ${k}`).join('\n')}\n\n`;
+        if (ins.detailed_analysis) answerText += `### Detailed Analysis\n${ins.detailed_analysis}\n\n`;
+        if (ins.recommendations?.length > 0) answerText += `### Recommendations\n${ins.recommendations.map((r: string, i: number) => `${i + 1}. ${r}`).join('\n')}\n\n`;
+        if (ins.conclusion) answerText += `### Conclusion\n${ins.conclusion}`;
+      } else if (isDbIntent) {
+        answerText = 'Analysis complete.';
+      }
+
+      get().updateTurn(assistantTurnId, t => ({
+        ...t,
+        status: 'complete',
+        answerText,
+        evidence,
+        followUpSuggestions: isDbIntent ? (analyzeRes.insight?.suggested_questions || analyzeRes.insight?.recommendations || []) : []
+      }));
+
+      // Generate title if new
+      const currentSessionAfterComplete = get().sessions[activeSessionId!];
+      if (previousTurns.length === 0 && !currentSessionAfterComplete.isCustomTitle) {
+        let generatedTitle = "New Chat";
+        const intent = analyzeRes.intent || 'conversation';
+        if (intent === 'schema') generatedTitle = "Database Schema";
+        else if (intent === 'database') {
+          const stopWords = ['show', 'me', 'what', 'is', 'the', 'tell', 'about', 'how', 'many', 'much', 'do', 'we', 'have', 'are', 'there'];
+          const words = text.split(' ').filter(w => !stopWords.includes(w.toLowerCase()));
+          const keywords = words.slice(0, 3).join(' ');
+          generatedTitle = keywords ? `${keywords.charAt(0).toUpperCase() + keywords.slice(1)} Analysis` : "Data Analysis";
+        } else if (intent === 'knowledge') {
+          const stopWords = ['explain', 'what', 'is', 'how', 'does', 'work', 'tell', 'me', 'about'];
+          const words = text.split(' ').filter(w => !stopWords.includes(w.toLowerCase()));
+          generatedTitle = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || "Knowledge Topic";
+        } else {
+          generatedTitle = text.split(' ').slice(0, 4).join(' ') + (text.split(' ').length > 4 ? '...' : '');
+        }
+        if (generatedTitle.length > 30) generatedTitle = generatedTitle.substring(0, 27) + '...';
+        
+        // Wait briefly for UI to settle before async call to avoid race conditions
+        setTimeout(() => get().updateSessionTitle(activeSessionId!, generatedTitle), 100);
+      }
+      
+      // Save assistant turn to backend
+      const finalTurnState = get().sessions[activeSessionId!].messages.find(m => m.id === assistantTurnId);
+      if (finalTurnState) {
+        agentClient.saveTurn(activeSessionId!, finalTurnState).catch(e => console.error("Failed to save assistant turn", e));
+      }
+
+    } catch (error: any) {
+      isFetching = false;
+      let backendSteps: ThinkingStep[] = [];
+      if (error.response?.data?.steps) {
+        backendSteps = error.response.data.steps.map((s: any) => ({
+          id: uuidv4(),
+          kind: s.name,
+          label: s.name,
+          status: s.status,
+          detail: s.detail,
+          durationMs: s.duration_ms
+        }));
+      }
+
+      get().updateTurn(assistantTurnId, t => ({
+        ...t,
+        status: 'error',
+        answerText: "Sorry, I encountered an error while processing your request.",
+        thinkingSteps: backendSteps.length > 0 ? backendSteps : t.thinkingSteps
+      }));
+      
+      const errorTurnState = get().sessions[activeSessionId!].messages.find(m => m.id === assistantTurnId);
+      if (errorTurnState) {
+        agentClient.saveTurn(activeSessionId!, errorTurnState).catch(e => console.error("Failed to save error turn", e));
+      }
+    }
+  }
+}));

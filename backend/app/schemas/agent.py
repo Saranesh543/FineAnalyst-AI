@@ -22,6 +22,11 @@ class MessageRole(str, Enum):
     """Role of a participant in a conversation turn."""
     USER = "user"
     ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+class MessageTurn(BaseModel):
+    role: MessageRole
+    content: str
 
 
 class AgentStatus(str, Enum):
@@ -51,6 +56,10 @@ class AgentRequest(BaseModel):
             "If omitted, a stateless single-turn exchange is performed."
         ),
         examples=["session-abc-123"],
+    )
+    history: list[MessageTurn] | None = Field(
+        default=None,
+        description="Optional list of previous messages for conversation context."
     )
 
     model_config = {"str_strip_whitespace": True}

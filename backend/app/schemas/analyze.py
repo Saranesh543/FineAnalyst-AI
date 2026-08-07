@@ -12,6 +12,21 @@ from typing import Any
 from app.schemas.execution import SQLExecutionResponse
 from app.schemas.insight import BusinessInsightResponse
 from app.schemas.visualization import VisualizationRecommendation
+from app.schemas.agent import MessageTurn
+
+
+# ---------------------------------------------------------------------------
+# Workflow
+# ---------------------------------------------------------------------------
+
+
+class WorkflowStep(BaseModel):
+    """Represents a single step in the analytics pipeline."""
+
+    name: str = Field(description="The technical name of the pipeline stage.")
+    status: str = Field(description="'done', 'error', 'skipped'")
+    duration_ms: float | None = Field(default=None, description="Execution time in milliseconds.")
+    detail: str | None = Field(default=None, description="Additional context, like generated SQL or error message.")
 
 
 # ---------------------------------------------------------------------------
@@ -27,9 +42,9 @@ class AnalyzeRequest(BaseModel):
         min_length=2,
         description="The natural-language business question to analyze.",
     )
-    history: list[str] | None = Field(
+    history: list[MessageTurn] | None = Field(
         default=None,
-        description="Optional list of previous questions for conversation context.",
+        description="Optional list of previous messages for conversation context.",
     )
 
 
@@ -76,6 +91,10 @@ class AnalyzeResponse(BaseModel):
         default=None,
         description="Overall analytics confidence (High, Medium, Low)."
     )
+    steps: list[WorkflowStep] | None = Field(
+        default_factory=list,
+        description="Chronological log of workflow execution steps."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,3 +108,7 @@ class AnalyzeErrorResponse(BaseModel):
     error: str = Field(description="Machine-readable error code.")
     message: str = Field(description="Human-readable explanation.")
     stage: str = Field(description="The pipeline stage where the failure occurred.")
+    steps: list[WorkflowStep] | None = Field(
+        default_factory=list,
+        description="Chronological log of workflow execution steps up to the point of failure."
+    )

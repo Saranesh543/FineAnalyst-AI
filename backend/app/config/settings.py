@@ -21,6 +21,9 @@ class Settings:
     # Database Configuration
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./fineanalyst.db")
     
+    # Authentication
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "fineanalyst-dev-secret-change-in-production")
+    
     # FastAPI Configuration
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

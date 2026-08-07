@@ -22,7 +22,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart
 
 from app.agents.fineanalyst_agent import get_agent
 from app.schemas.agent import (
@@ -30,6 +30,8 @@ from app.schemas.agent import (
     AgentResponse,
     AgentStatus,
     UsageInfo,
+    MessageTurn,
+    MessageRole
 )
 
 if TYPE_CHECKING:
@@ -37,15 +39,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# In-memory conversation store
-# ---------------------------------------------------------------------------
-# Maps session_id -> list of pydantic_ai ModelMessage objects.
-# This store lives in process memory only; it resets on server restart.
-# A future iteration should replace this with Redis / a database backend.
+# Memory is now stateless and managed by the frontend.
+# The session endpoints will remain for compatibility or extended to clear backend cache if any.
 _SESSION_HISTORY: dict[str, list[ModelMessage]] = defaultdict(list)
-
-# Safety cap — prevent runaway context growth.
 _MAX_HISTORY_MESSAGES: int = 100
 
 
@@ -72,6 +68,7 @@ class AgentService:
         self,
         user_message: str,
         session_id: str | None = None,
+        history: list[MessageTurn] | None = None,
     ) -> AgentResponse | AgentErrorResponse:
         """
         Send *user_message* to the agent and return a structured response.
@@ -79,8 +76,7 @@ class AgentService:
         Args:
             user_message: The raw text from the user.
             session_id:   Optional identifier for conversation continuity.
-                          When provided, message history is preserved across
-                          calls within the same session.
+            history:      List of previous message turns for context.
 
         Returns:
             AgentResponse on success, AgentErrorResponse on failure.
@@ -95,25 +91,21 @@ class AgentService:
             len(user_message),
         )
 
-        # Retrieve existing history for this session (may be empty list).
-        history: list[ModelMessage] = (
-            _SESSION_HISTORY[session_id] if session_id else []
-        )
+        # Build message history for Pydantic-AI
+        model_history: list[ModelMessage] = []
+        if history:
+            for turn in history:
+                if turn.role == MessageRole.USER:
+                    model_history.append(ModelRequest(parts=[TextPart(content=turn.content)]))
+                elif turn.role == MessageRole.ASSISTANT:
+                    model_history.append(ModelResponse(parts=[TextPart(content=turn.content)]))
 
         try:
             agent = get_agent()  # lazy — raises ValueError if key is missing
             result = await agent.run(
                 user_message,
-                message_history=history if history else None,
+                message_history=model_history if model_history else None,
             )
-
-            # Persist new messages back into the session store.
-            if session_id:
-                updated = list(result.all_messages())
-                # Trim if we've exceeded the safety cap.
-                if len(updated) > _MAX_HISTORY_MESSAGES:
-                    updated = updated[-_MAX_HISTORY_MESSAGES:]
-                _SESSION_HISTORY[session_id] = updated
 
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
             # In PydanticAI 2.22, `usage` is a property (RunUsage dataclass),

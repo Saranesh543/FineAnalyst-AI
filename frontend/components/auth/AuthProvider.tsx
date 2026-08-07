@@ -3,27 +3,23 @@
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useConversationStore } from "@/lib/store/conversation-store";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, user } = useAuthStore();
-  const { syncUser } = useConversationStore();
+  const { isAuthenticated, verifyToken } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Sync conversation store with active user
-  useEffect(() => {
-    syncUser(user?.id || null);
-  }, [user?.id, syncUser]);
+    // On mount: validate token and hydrate sessions from backend
+    verifyToken().finally(() => {
+      setMounted(true);
+    });
+  }, [verifyToken]);
 
   useEffect(() => {
     if (!mounted) return;
-    const isAuthRoute = ["/login", "/register", "/forgot-password"].includes(pathname);
+    const isAuthRoute = ["/login", "/register", "/forgot-password", "/reset-password"].includes(pathname);
     
     if (!isAuthenticated && !isAuthRoute) {
       router.push("/login");
@@ -35,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Prevent flash of protected content while evaluating redirect
   if (!mounted) return null;
   
-  const isAuthRoute = ["/login", "/register", "/forgot-password"].includes(pathname);
+  const isAuthRoute = ["/login", "/register", "/forgot-password", "/reset-password"].includes(pathname);
   if (!isAuthenticated && !isAuthRoute) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">

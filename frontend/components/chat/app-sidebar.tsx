@@ -43,9 +43,9 @@ export function AppSidebar() {
     toggleSidebar();
   }, [toggleSidebar]);
 
-  const handleNewChat = useCallback((e: React.MouseEvent) => {
+  const handleNewChat = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault();
-    createNewSession();
+    await createNewSession();
     closeMobile();
     router.push("/");
   }, [createNewSession, closeMobile, router]);

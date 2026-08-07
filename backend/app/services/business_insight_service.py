@@ -16,6 +16,7 @@ from app.services.llm_provider import get_llm_model
 from app.config.settings import settings
 from app.schemas.execution import SQLExecutionResponse
 from app.schemas.insight import BusinessInsightResponse
+from app.schemas.database_schema import DatabaseSchemaResponse
 from app.schemas.visualization import VisualizationRecommendation
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,11 @@ OUTPUT RULES:
 4. NEVER perform mathematical arithmetic in the KPI card values (e.g. DO NOT output `10+20`). Always use the PRE-CALCULATED METRICS provided in the prompt, or output a single primitive float.
 5. Identify any obvious anomalies or outliers in the provided data. If none, leave empty.
 6. Recommend 3-5 actionable business recommendations derived ONLY from this data as a JSON **array of strings**. Never use * or - bullet syntax. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
-7. Generate 3-5 intelligent suggested follow-up questions (e.g., "Show monthly revenue", "Compare by country", "Revenue trend") as a JSON **array of strings**. Never use * or - bullet syntax. NEVER copy recommendations into suggested questions.
+7. Generate 3-5 intelligent, context-aware suggested follow-up questions as a JSON **array of strings**. Never use * or - bullet syntax. NEVER repeat the user's current question. NEVER generate generic suggestions. The suggestions MUST naturally extend the current conversation and analysis results (e.g., if the user asks "Who are top customers?", suggest "Show monthly spending of these customers", "Compare top customers by region", etc). They MUST be directly executable by the SQL database, unique, and business-focused. NEVER copy recommendations into suggested questions.
+8. Generate a `detailed_analysis` explaining the findings in paragraphs.
+9. Generate a `conclusion` that summarizes everything in one sentence.
+10. Automatically render ALL important metrics (revenue, counts, percentages, currency, totals, averages, dates) in **bold** throughout ALL text fields.
+11. Do NOT blindly duplicate the exact numbers that are already displayed in the `kpi_cards`. Instead, the text (`detailed_analysis`, `summary`, etc.) should focus on explaining the "why", the context, and the insights, rather than just repeating values.
 
 You MUST output your response as a valid JSON object matching exactly this schema:
 {
@@ -60,9 +65,11 @@ You MUST output your response as a valid JSON object matching exactly this schem
     }
   ],
   "key_findings": ["String 1", "String 2"],
+  "detailed_analysis": "String explaining the findings in paragraphs.",
   "anomalies": ["String 1"],
   "recommendations": ["String 1"],
-  "suggested_questions": ["String 1"]
+  "suggested_questions": ["String 1"],
+  "conclusion": "String, exactly one sentence"
 }
 Do not wrap the JSON in markdown code blocks. Output ONLY valid JSON.
 """
@@ -75,6 +82,7 @@ def _get_insight_agent() -> Agent:
     return Agent(
         model=model,
         system_prompt=_SYSTEM_PROMPT,
+        output_type=BusinessInsightResponse,
         retries=2,
     )
 
@@ -162,6 +170,30 @@ def _repair_bullet_lists(raw: str) -> str:
     repaired = re.sub(r"^\s*[*+-]\s+'", '"', repaired, flags=re.MULTILINE)
     return repaired
 
+_IMPOSSIBLE_SYSTEM_PROMPT = """
+You are FineAnalyst AI, a professional Business Intelligence engine.
+The user asked a database-related question, but it has been programmatically determined that the required data (tables or columns) does not exist in the schema.
+
+OUTPUT RULES:
+1. Provide a concise executive summary explaining that the requested data is not available. MAX 2 SENTENCES.
+2. Generate an empty array for `kpi_cards`, `key_findings`, and `anomalies`.
+3. In `detailed_analysis`, explain in a professional tone why the question cannot be answered given the current schema limits. Be specific about what is missing if possible.
+4. In `recommendations`, provide 1-2 suggestions on how the user might rephrase or what related metrics they COULD ask for.
+5. Generate 3-5 intelligent, context-aware `suggested_questions` that CAN be answered by the available schema.
+6. Generate a `conclusion` summarizing the limitation.
+7. You MUST output your response as a valid JSON object matching exactly the `BusinessInsightResponse` schema.
+"""
+
+def _build_impossible_prompt(question: str, schema: DatabaseSchemaResponse) -> str:
+    from app.services.sql_generator_service import _build_schema_section
+    schema_text = _build_schema_section(schema)
+    return (
+        f"User Question: {question}\n\n"
+        f"Available Schema:\n{schema_text}\n\n"
+        "Explain to the user that their question cannot be answered using this schema, "
+        "and suggest related questions that CAN be answered."
+    )
+
 class BusinessInsightService:
     """Service to generate business insights from data."""
 
@@ -203,6 +235,7 @@ class BusinessInsightService:
                 summary="The query returned no data to analyze.",
                 kpi_cards=[],
                 key_findings=["No records matched the criteria for this question."],
+                detailed_analysis="Because the executed query returned exactly zero rows, it is impossible to draw any detailed analytical insights. This typically occurs when filters are too restrictive or no activity happened in the requested timeframe.",
                 anomalies=[],
                 recommendations=[
                     "Check if the date range or filters applied are correct.",
@@ -211,30 +244,16 @@ class BusinessInsightService:
                 suggested_questions=[
                     "Show total revenue",
                     "List all customers"
-                ]
+                ],
+                conclusion="No data was returned for analysis."
             )
 
         prompt = _build_insight_prompt(question, execution_result, visualization)
 
         try:
             result = await self.agent.run(prompt)
-            raw_response = result.output.strip()
-            
-            # Remove markdown JSON fences if model hallucinates them
-            if raw_response.startswith("```json"):
-                raw_response = raw_response[7:]
-            elif raw_response.startswith("```"):
-                raw_response = raw_response[3:]
-            if raw_response.endswith("```"):
-                raw_response = raw_response[:-3]
-            raw_response = raw_response.strip()
-            
-            # Repair malformed bullets
-            raw_response = _repair_bullet_lists(raw_response)
-            
-            import json
-            parsed_json = json.loads(raw_response)
-            insight = BusinessInsightResponse.model_validate(parsed_json)
+            insight = result.output
+
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t_start) * 1000
             
@@ -253,6 +272,7 @@ class BusinessInsightService:
                     validation_errors = str(exc)
                 logger.error(f"[{request_id}] RAW LLM VALIDATION ERRORS:\n{validation_errors}")
                 
+            logger.error(f"RAW LLM RESPONSE BEFORE PARSING:\n{raw_response}")
             logger.exception(
                 "[%s] Insight generation failed | elapsed=%.1f ms | error=%s",
                 request_id,
@@ -274,9 +294,11 @@ class BusinessInsightService:
                 summary=f"Data was successfully retrieved ({execution_result.row_count} rows), but AI insights could not be generated due to a temporary model formatting issue.",
                 kpi_cards=[],
                 key_findings=["AI analysis is temporarily unavailable."],
+                detailed_analysis=f"An internal error occurred while trying to parse the AI model's response. RAW LLM OUTPUT WAS:\n\n{raw_response}\n\nERROR:\n{exc}",
                 anomalies=[],
                 recommendations=["Review the raw data table below for insights."],
-                suggested_questions=["Retry query", "Show total revenue"]
+                suggested_questions=["Retry query", "Show total revenue"],
+                conclusion="Please try again or review the raw data directly."
             )
 
         elapsed_ms = (time.perf_counter() - t_start) * 1000
@@ -288,6 +310,50 @@ class BusinessInsightService:
         )
 
         return insight
+
+    async def generate_impossible_insight(
+        self,
+        question: str,
+        schema: DatabaseSchemaResponse,
+    ) -> BusinessInsightResponse:
+        """
+        Generate a graceful explanation when the user asks an impossible database question.
+        """
+        request_id = f"imp-{int(time.time() * 1000)}"
+        t_start = time.perf_counter()
+
+        logger.info("[%s] Generating impossible insight for question: %r", request_id, question)
+
+        agent = Agent(
+            model=get_llm_model(),
+            system_prompt=_IMPOSSIBLE_SYSTEM_PROMPT,
+            output_type=BusinessInsightResponse,
+            retries=2,
+        )
+
+        prompt = _build_impossible_prompt(question, schema)
+
+        try:
+            result = await agent.run(prompt)
+            insight = result.output
+        except Exception as exc:
+            logger.exception("[%s] Impossible insight generation failed: %s", request_id, exc)
+            insight = BusinessInsightResponse(
+                summary="The requested data is not available in the database.",
+                kpi_cards=[],
+                key_findings=[],
+                detailed_analysis="Your question references information that does not exist in our current database schema. We are unable to run this analysis.",
+                anomalies=[],
+                recommendations=["Try asking about data that is tracked in the system."],
+                suggested_questions=["What database do you have?", "Show all tables"],
+                conclusion="Data not available."
+            )
+
+        elapsed_ms = (time.perf_counter() - t_start) * 1000
+        logger.info("[%s] Impossible insight generated | elapsed=%.1f ms", request_id, elapsed_ms)
+        return insight
+
+
 
 
 # ---------------------------------------------------------------------------

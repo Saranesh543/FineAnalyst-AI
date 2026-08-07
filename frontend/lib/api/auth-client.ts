@@ -1,68 +1,80 @@
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 export interface AuthUser {
-  id: string;
-  name: string;
+  id: number;
+  full_name: string;
   email: string;
-  avatar: string;
+  created_at: string;
 }
 
 export interface AuthResponse {
   user: AuthUser;
-  accessToken: string;
+  access_token: string;
+  refresh_token: string;
 }
 
 class AuthClient {
-  private async delay(ms: number) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  async login(email: string, password: string): Promise<AuthResponse> {
-    await this.delay(800); // Simulate network latency
-
+  async login(email: string, password: string, remember_me: boolean = false): Promise<AuthResponse> {
     if (!email || !password) {
       throw new Error("Email and password are required");
     }
-
-    // Mock successful login
-    return {
-      user: {
-        id: "usr_" + Math.random().toString(36).substr(2, 9),
-        name: email.split('@')[0] || "Saran",
-        email: email,
-        avatar: email.charAt(0).toUpperCase()
-      },
-      accessToken: "mock_token_" + Date.now().toString()
-    };
+    const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, remember_me }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Login failed");
+    return data;
   }
 
   async register(name: string, email: string, password: string): Promise<AuthResponse> {
-    await this.delay(1000); // Simulate network latency
-
     if (!name || !email || !password) {
       throw new Error("All fields are required");
     }
-
-    return {
-      user: {
-        id: "usr_" + Math.random().toString(36).substr(2, 9),
-        name: name,
-        email: email,
-        avatar: name.charAt(0).toUpperCase()
-      },
-      accessToken: "mock_token_" + Date.now().toString()
-    };
+    const res = await fetch(`${API_BASE}/api/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full_name: name, email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Registration failed");
+    return data;
   }
 
-  async forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
-    await this.delay(800); // Simulate network latency
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    if (!email) throw new Error("Email is required");
+    const res = await fetch(`${API_BASE}/api/v1/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Request failed");
+    return data;
+  }
 
-    if (!email) {
-      throw new Error("Email is required");
-    }
+  async resetPassword(token: string, new_password: string): Promise<{ message: string }> {
+    if (!token || !new_password) throw new Error("Token and password are required");
+    const res = await fetch(`${API_BASE}/api/v1/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, new_password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Reset password failed");
+    return data;
+  }
 
-    return {
-      success: true,
-      message: "If an account exists, a reset link has been sent."
-    };
+  async refreshToken(refresh_token: string): Promise<AuthResponse> {
+    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Token refresh failed");
+    return data;
   }
 }
 

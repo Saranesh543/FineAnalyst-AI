@@ -1,4 +1,5 @@
-// RESOLUTION: 3. Standalone schema/ER endpoint: Yes, GET /schema exists. 4. Session state: Persisted server-side via AgentService. 6. Existing report/export tool: No existing tool in the backend agent.
+import { useAuthStore } from '../store/auth-store';
+
 const _rawUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const _cleanBase = _rawUrl.replace(/\/+$/, '');
 const API_BASE = _cleanBase.endsWith('/api/v1') ? _cleanBase : `${_cleanBase}/api/v1`;
@@ -6,6 +7,7 @@ const API_BASE = _cleanBase.endsWith('/api/v1') ? _cleanBase : `${_cleanBase}/ap
 export interface AgentChatRequest {
   message: string;
   session_id?: string | null;
+  history?: { role: string; content: string }[];
 }
 
 export interface AgentChatResponse {
@@ -16,7 +18,7 @@ export interface AgentChatResponse {
 
 export interface AnalyzeRequest {
   question: string;
-  history?: string[];
+  history?: { role: string; content: string }[];
 }
 
 export interface KPICard {
@@ -63,12 +65,36 @@ export interface SchemaResponse {
   tables: any[];
 }
 
+async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  let token = useAuthStore.getState().token;
+  
+  const headers = new Headers(options.headers || {});
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  let res = await fetch(url, { ...options, headers });
+
+  if (res.status === 401) {
+    console.log(`[AgentClient] 401 received, attempting to refresh token...`);
+    await useAuthStore.getState().verifyToken();
+    token = useAuthStore.getState().token;
+    
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+      res = await fetch(url, { ...options, headers });
+    }
+  }
+
+  return res;
+}
+
 export const agentClient = {
   async chat(payload: AgentChatRequest): Promise<AgentChatResponse> {
     console.log(`[AgentClient] chat fetch started... Payload:`, payload);
     const start = Date.now();
     try {
-      const res = await fetch(`${API_BASE}/agent/chat`, {
+      const res = await fetchWithAuth(`${API_BASE}/agent/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -90,7 +116,7 @@ export const agentClient = {
     console.log(`[AgentClient] analyze fetch started... Payload:`, payload);
     const start = Date.now();
     try {
-      const res = await fetch(`${API_BASE}/analyze`, {
+      const res = await fetchWithAuth(`${API_BASE}/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -120,10 +146,45 @@ export const agentClient = {
   },
 
   async getSchema(): Promise<SchemaResponse> {
-    const res = await fetch(`${API_BASE}/schema`);
+    const res = await fetchWithAuth(`${API_BASE}/schema`);
     if (!res.ok) {
       throw new Error("Failed to fetch schema");
     }
     return res.json();
+  },
+
+  async fetchSessions(): Promise<any[]> {
+    const res = await fetchWithAuth(`${API_BASE}/sessions`);
+    if (!res.ok) throw new Error("Failed to fetch sessions");
+    return res.json();
+  },
+
+  async createSession(): Promise<any> {
+    const res = await fetchWithAuth(`${API_BASE}/sessions`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to create session");
+    return res.json();
+  },
+
+  async updateSessionTitle(id: string, title: string, isCustomTitle?: boolean): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE}/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, isCustomTitle }),
+    });
+    if (!res.ok) throw new Error("Failed to update session title");
+  },
+
+  async deleteSession(id: string): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE}/sessions/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete session");
+  },
+
+  async saveTurn(sessionId: string, turn: any): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE}/sessions/${sessionId}/turns`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(turn),
+    });
+    if (!res.ok) throw new Error("Failed to save turn");
   }
 };

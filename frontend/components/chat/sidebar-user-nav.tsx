@@ -26,12 +26,14 @@ function emailToHue(email: string): number {
   return Math.abs(hash) % 360;
 }
 
-export function SidebarUserNav({ user }: { user: { email: string; id: string } }) {
+export function SidebarUserNav({ user }: { user: { email: string; id: string; full_name?: string } }) {
   const { setTheme, resolvedTheme } = useTheme();
 
   const handleThemeSelect = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
   }, [resolvedTheme, setTheme]);
+
+  const displayName = user.full_name || user.email;
 
   return (
     <SidebarMenu>
@@ -49,7 +51,7 @@ export function SidebarUserNav({ user }: { user: { email: string; id: string } }
                   }}
                 />
                 <span className="truncate text-[13px]" data-testid="user-email">
-                  {user.email}
+                  {displayName}
                 </span>
                 <ChevronUp className="ml-auto size-3.5 text-sidebar-foreground/50" />
               </SidebarMenuButton>
