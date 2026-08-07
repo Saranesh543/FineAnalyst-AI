@@ -65,6 +65,7 @@ app.add_middleware(
         "http://localhost:3000",
         "https://fine-analyst-ai.vercel.app"
     ],
+    allow_origin_regex=r"https://fine-analyst-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
