@@ -41,6 +41,10 @@ class IntentResult(BaseModel):
     intent: Intent = Field(
         description="The detected intent class."
     )
+    corrected_message: str | None = Field(
+        default=None,
+        description="The typo-corrected version of the user message. Fix spelling mistakes or expand abbreviations (e.g., 'rev' -> 'revenue'). If no correction is needed, return the original message or leave empty."
+    )
 
     model_config = {"use_enum_values": True}
 

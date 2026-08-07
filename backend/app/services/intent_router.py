@@ -19,13 +19,19 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 You are an intent classification routing agent.
-Your ONLY job is to classify the user's message into exactly one of three intents.
+Your job is to analyze the user's message, correct any spelling mistakes, and classify it into EXACTLY ONE of four intents.
 
+You must output a structured JSON response matching the IntentResult schema, with two fields:
+1. `corrected_message`: The typo-corrected version of the user message. Fix spelling mistakes or expand abbreviations (e.g., 'rev' -> 'revenue'). If no correction is needed, return the original message. Do NOT change the user's intended meaning.
+2. `intent`: The detected intent class.
+
+Intents:
 1. conversation:
    - Greetings (e.g., "Hi", "Hello", "Good morning")
    - Farewells (e.g., "Bye", "See you later")
    - Polite remarks (e.g., "Thanks", "Thank you")
    - Identity questions (e.g., "Who are you?", "What can you do?", "Nice to meet you")
+   - Contextual chat follow-ups that don't query data.
 
 2. knowledge:
    - Educational questions
@@ -36,6 +42,7 @@ Your ONLY job is to classify the user's message into exactly one of three intent
 3. database:
    - Requests to analyze data, show metrics, or aggregate data.
    - Any query that requires looking at the actual database tables.
+   - Follow-up questions about data (e.g. "and for last year?", "what about the worst?").
    - Example: "Show top customers", "Average salary", "Highest selling products", "Show all employees".
 
 4. schema:
@@ -43,7 +50,7 @@ Your ONLY job is to classify the user's message into exactly one of three intent
    - Any general question asking what data is available.
    - Example: "What database do you have?", "What tables are available?", "Show me your schema", "What columns exist?", "Describe the database", "What data is stored here?"
 
-Respond strictly with the correct intent. Do not include any other text or explanations.
+Use the conversation history to help disambiguate short messages. For example, if the previous message was "Show top customers", and the current message is "what about the worst?", the intent is `database`, not `conversation`.
 """
 
 class IntentRouterService:
@@ -57,29 +64,35 @@ class IntentRouterService:
             self._agent = Agent(
                 model=get_llm_model(),
                 system_prompt=SYSTEM_PROMPT,
+                output_type=IntentResult
             )
-            logger.info("IntentRouterService agent initialised (plain text mode).")
+            logger.info("IntentRouterService agent initialised with structured output.")
         return self._agent
 
     def _heuristic_classify(self, message: str) -> str | None:
         import re
         
-        # Normalize message
+        # Normalize message: lowercase, remove punctuation, strip
         cleaned = re.sub(r'[^\w\s]', '', message.strip().lower())
         
-        # Keyword matching
+        # Remove consecutive duplicate letters (e.g. hiiii -> hi, helloo -> helo, byee -> bye)
+        # Note: This will turn "hello" into "helo", "good" into "god".
+        deduped = re.sub(r'(.)\1+', r'\1', cleaned)
+        
+        # Keyword matching (matching on the deduped string where appropriate)
         conversational_keywords = {
-            "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
-            "bye", "good night", "see you", "see ya",
-            "thanks", "thank you", "thx",
-            "ok", "okay", "cool", "nice", "great", "awesome",
-            "who are you", "what can you do", "help", "how are you", "nice to meet you"
+            "hi", "helo", "hey", "god morning", "god afternon", "god evening",
+            "bye", "god night", "se you", "se ya",
+            "thanks", "thank you", "thx", "thnks",
+            "ok", "okay", "col", "nice", "great", "awesome",
+            "who are you", "what can you do", "help", "how are you", "nice to met you",
+            "gm", "gn", "god mrng", "mrng"
         }
         
-        if cleaned in conversational_keywords:
+        if deduped in conversational_keywords:
             return "conversation"
             
-        # Short message heuristic
+        # Short message heuristic (matching on the original cleaned string)
         words = cleaned.split()
         data_terms = {
             "show", "get", "find", "count", "average", "total", "revenue", 
@@ -127,29 +140,13 @@ class IntentRouterService:
         logger.debug("Classifying intent for prompt: %r", prompt[:100])
         try:
             result = await agent.run(prompt)
-            raw_response = result.output.strip().lower()
-            logger.info("Raw LLM intent response: %r", raw_response)
-            
-            # Manual parsing and validation
-            if "schema" in raw_response:
-                parsed_intent = "schema"
-            elif "database" in raw_response:
-                parsed_intent = "database"
-            elif "knowledge" in raw_response:
-                parsed_intent = "knowledge"
-            elif "conversation" in raw_response:
-                parsed_intent = "conversation"
-            else:
-                logger.warning("Unrecognized intent format from LLM: %r. Defaulting to conversation.", raw_response)
-                parsed_intent = "conversation"
-                
-            logger.info("Parsed intent: %s", parsed_intent)
-            validated_output = IntentResult(intent=parsed_intent)
-            logger.info("Final IntentResult: %s", validated_output.model_dump_json())
+            validated_output: IntentResult = result.output
+            logger.info("Parsed intent: %s | Corrected msg: %r", validated_output.intent, validated_output.corrected_message)
             return validated_output
         except Exception as exc:
             logger.exception("LLM Intent Router failed to validate intent output. Exception: %s | Type: %s", exc, type(exc).__name__)
-            raise
+            # Fallback instead of crashing
+            return IntentResult(intent="conversation", corrected_message=message)
 
 # ---------------------------------------------------------------------------
 # Module-level singleton

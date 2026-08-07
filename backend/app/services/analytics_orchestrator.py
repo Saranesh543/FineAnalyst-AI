@@ -66,7 +66,11 @@ class AnalyticsOrchestratorService:
         step_start = time.perf_counter()
         try:
             intent_result = await intent_router.classify(question, history=history)
-            logger.info("[%s] Classified intent: %s", request_id, intent_result.intent)
+            
+            # Use corrected message internally if available, else original
+            internal_query = intent_result.corrected_message if intent_result.corrected_message else question
+            
+            logger.info("[%s] Classified intent: %s | internal_query: %r", request_id, intent_result.intent, internal_query)
             
             if intent_result.intent in (Intent.CONVERSATION, Intent.KNOWLEDGE):
                 return AnalyzeResponse(
@@ -146,15 +150,7 @@ class AnalyticsOrchestratorService:
                     steps=steps
                 )
         except Exception as exc:
-            steps.append(WorkflowStep(
-                name="intent_routing",
-                status="error",
-                detail=str(exc)
-            ))
-            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
-                logger.exception("[%s] Workflow failed at intent routing due to rate limit: %s", request_id, exc)
-                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc, steps=steps) from exc
-            logger.exception("[%s] Workflow failed at intent routing: %s | Type: %s", request_id, exc, type(exc).__name__)
+            logger.exception("[%s] Intent classification failed: %s", request_id, exc)
             raise AnalyticsWorkflowError(f"Intent routing failed: {exc}", stage="intent_routing", original_error=exc, steps=steps) from exc
 
         # -----------------------------------------------------------------------
@@ -227,7 +223,7 @@ class AnalyticsOrchestratorService:
                 step_start = time.perf_counter()
                 try:
                     insight = await business_insight_service.generate_impossible_insight(
-                        question=question,
+                        question=internal_query,
                         schema=schema_response
                     )
                     steps.append(WorkflowStep(
@@ -308,7 +304,7 @@ class AnalyticsOrchestratorService:
         try:
             logger.info("[%s] Recommending visualization...", request_id)
             vis_response = chart_intelligence_service.select_chart(
-                question=question, execution_result=execution_response
+                question=internal_query, execution_result=execution_response
             )
             logger.info("[%s] Visualization recommended: %s | confidence: %s | reason: %s | row_count: %s", 
                         request_id, vis_response.chart, vis_response.confidence, vis_response.reason, execution_response.row_count)
@@ -338,7 +334,7 @@ class AnalyticsOrchestratorService:
         try:
             logger.info("[%s] Generating insights...", request_id)
             insight_response = await business_insight_service.generate_insight(
-                question=question,
+                question=internal_query,
                 execution_result=execution_response,
                 visualization=vis_response,
             )
