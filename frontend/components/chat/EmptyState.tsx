@@ -52,7 +52,7 @@ export function EmptyState({ onSelectPrompt, isStreaming }: EmptyStateProps) {
         <div className="absolute inset-0 bg-cyan-500/5 blur-[80px] -z-10 rounded-[100%]" />
         <h1 className="text-[2.75rem] leading-tight font-semibold tracking-tight text-foreground">
           {greeting},{user?.name ? (
-            <> <span className="text-cyan-400 font-bold">{user.full_name}!</span> 👋</>
+            <> <span className="text-cyan-400 font-bold">{user?.full_name}!</span> 👋</>
           ) : (
             " 👋"
           )}

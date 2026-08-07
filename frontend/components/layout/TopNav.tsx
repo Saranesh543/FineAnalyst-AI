@@ -39,7 +39,7 @@ export function TopNav() {
           </DropdownMenu> */}
 
           <Link href="/" className="text-cyan-400 bg-cyan-400/10 px-3 py-1.5 rounded-full transition-colors border border-cyan-400/20">AI Chat</Link>
-          
+
           {/* <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors cursor-not-allowed opacity-50" onClick={(e) => e.preventDefault()}>Data Explorer</Link>
@@ -62,14 +62,14 @@ export function TopNav() {
 
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 text-muted-foreground">
-          <button 
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")} 
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="p-2 hover:bg-accent rounded-full transition-colors"
           >
             <Sun className="h-4 w-4 dark:hidden" />
             <Moon className="h-4 w-4 hidden dark:block" />
           </button>
-          
+
           {/* <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="p-2 hover:bg-accent rounded-full transition-colors opacity-50 cursor-not-allowed">
@@ -94,12 +94,12 @@ export function TopNav() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity ml-2">
               <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold overflow-hidden">
-                {user?.full_name ? user.full_name.charAt(0).toUpperCase() : "G"}
+                {user?.full_name ? user?.full_name.charAt(0).toUpperCase() : "G"}
               </div>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </div>
