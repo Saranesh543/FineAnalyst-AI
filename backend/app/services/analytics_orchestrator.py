@@ -67,11 +67,6 @@ class AnalyticsOrchestratorService:
         try:
             intent_result = await intent_router.classify(question, history=history)
             logger.info("[%s] Classified intent: %s", request_id, intent_result.intent)
-            steps.append(WorkflowStep(
-                name="intent_routing",
-                status="done",
-                duration_ms=(time.perf_counter() - step_start) * 1000
-            ))
             
             if intent_result.intent in (Intent.CONVERSATION, Intent.KNOWLEDGE):
                 return AnalyzeResponse(
@@ -81,8 +76,18 @@ class AnalyticsOrchestratorService:
                     execution=None,
                     visualization=None,
                     insight=None,
-                    steps=steps
+                    steps=[WorkflowStep(
+                        name="Responding...",
+                        status="done",
+                        duration_ms=(time.perf_counter() - step_start) * 1000
+                    )]
                 )
+                
+            steps.append(WorkflowStep(
+                name="intent_routing",
+                status="done",
+                duration_ms=(time.perf_counter() - step_start) * 1000
+            ))
                 
             if intent_result.intent == Intent.SCHEMA:
                 logger.info("[%s] Fetching schema for SCHEMA intent...", request_id)

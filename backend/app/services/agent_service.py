@@ -91,12 +91,14 @@ class AgentService:
             len(user_message),
         )
 
+        from pydantic_ai.messages import UserPromptPart
+        
         # Build message history for Pydantic-AI
         model_history: list[ModelMessage] = []
         if history:
             for turn in history:
                 if turn.role == MessageRole.USER:
-                    model_history.append(ModelRequest(parts=[TextPart(content=turn.content)]))
+                    model_history.append(ModelRequest(parts=[UserPromptPart(content=turn.content)]))
                 elif turn.role == MessageRole.ASSISTANT:
                     model_history.append(ModelResponse(parts=[TextPart(content=turn.content)]))
 

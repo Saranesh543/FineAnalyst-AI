@@ -61,6 +61,39 @@ class IntentRouterService:
             logger.info("IntentRouterService agent initialised (plain text mode).")
         return self._agent
 
+    def _heuristic_classify(self, message: str) -> str | None:
+        import re
+        
+        # Normalize message
+        cleaned = re.sub(r'[^\w\s]', '', message.strip().lower())
+        
+        # Keyword matching
+        conversational_keywords = {
+            "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+            "bye", "good night", "see you", "see ya",
+            "thanks", "thank you", "thx",
+            "ok", "okay", "cool", "nice", "great", "awesome",
+            "who are you", "what can you do", "help", "how are you", "nice to meet you"
+        }
+        
+        if cleaned in conversational_keywords:
+            return "conversation"
+            
+        # Short message heuristic
+        words = cleaned.split()
+        data_terms = {
+            "show", "get", "find", "count", "average", "total", "revenue", 
+            "sales", "top", "worst", "predict", "compare", "create", "dashboard",
+            "anomalies", "customers", "orders", "products", "how many", "what is",
+            "list"
+        }
+        
+        if len(words) <= 3:
+            if not any(word in data_terms for word in words):
+                return "conversation"
+                
+        return None
+
     async def classify(self, message: str, history: list[MessageTurn] | None = None) -> IntentResult:
         """
         Classify the intent of the given user message.
@@ -72,6 +105,13 @@ class IntentRouterService:
         Returns:
             IntentResult containing the detected intent.
         """
+        
+        # 1. Heuristic bypass
+        heuristic_intent = self._heuristic_classify(message)
+        if heuristic_intent:
+            logger.info("Heuristic classified intent: %s", heuristic_intent)
+            return IntentResult(intent=heuristic_intent)
+            
         agent = self._get_agent()
         
         if history and len(history) > 0:
