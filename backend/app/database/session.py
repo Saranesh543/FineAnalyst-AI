@@ -14,9 +14,21 @@ engine = create_async_engine(
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
 )
 
+analytics_engine = create_async_engine(
+    settings.ANALYTICS_DATABASE_URL,
+    echo=(settings.ENVIRONMENT == "development"),
+    connect_args={"check_same_thread": False} if "sqlite" in settings.ANALYTICS_DATABASE_URL else {}
+)
+
 # Create a configured "Session" class
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+
+AsyncAnalyticsSessionLocal = async_sessionmaker(
+    bind=analytics_engine,
     class_=AsyncSession,
     expire_on_commit=False
 )

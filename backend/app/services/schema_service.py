@@ -30,7 +30,7 @@ from urllib.parse import urlparse
 from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from app.database.session import engine
+from app.database.session import analytics_engine
 from app.schemas.database_schema import (
     ColumnInfo,
     DatabaseSchemaResponse,
@@ -127,6 +127,10 @@ class SchemaService:
         table_names: list[str] = await conn.run_sync(
             lambda sync_conn: sa_inspect(sync_conn).get_table_names()
         )
+        # Exclude authentication/chat tables
+        excluded_tables = {"users", "sessions", "messages", "alembic_version"}
+        table_names = [name for name in table_names if name not in excluded_tables]
+        
         logger.debug("Discovered tables: %s", table_names)
 
         # ---- Empty-database fast path ------------------------------------
@@ -270,4 +274,4 @@ class SchemaService:
 # ---------------------------------------------------------------------------
 # Module-level singleton — shared across all FastAPI requests.
 # ---------------------------------------------------------------------------
-schema_service = SchemaService(db_engine=engine)
+schema_service = SchemaService(db_engine=analytics_engine)

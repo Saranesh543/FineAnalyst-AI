@@ -20,6 +20,7 @@ class Settings:
     
     # Database Configuration
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./fineanalyst.db")
+    ANALYTICS_DATABASE_URL: str = os.getenv("ANALYTICS_DATABASE_URL", "sqlite+aiosqlite:///./analytics.db")
     
     # Authentication
     JWT_SECRET: str = os.getenv("JWT_SECRET", "fineanalyst-dev-secret-change-in-production")

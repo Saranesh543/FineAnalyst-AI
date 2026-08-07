@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Target, ArrowRight, Zap } from "lucide-react";
+import { Streamdown } from "streamdown";
 
 interface BusinessRecommendationsProps {
   recommendations: string[];
@@ -30,9 +31,9 @@ export function BusinessRecommendations({ recommendations }: BusinessRecommendat
                 </span>
                 <Zap className={`h-4 w-4 ${isHighPriority ? 'text-indigo-400' : 'text-cyan-400'} opacity-50 group-hover:opacity-100 transition-opacity`} />
               </div>
-              <p className="text-sm text-foreground/80 leading-relaxed flex-1">
-                {rec}
-              </p>
+              <div className="text-sm text-foreground/80 leading-relaxed flex-1 prose prose-sm dark:prose-invert max-w-none prose-p:my-0">
+                <Streamdown mode="static">{rec}</Streamdown>
+              </div>
               <div className="mt-4 flex items-center text-xs text-muted-foreground font-semibold cursor-pointer group-hover:text-indigo-300 transition-colors">
                 Take Action <ArrowRight className="h-3 w-3 ml-1 transform group-hover:translate-x-1 transition-transform" />
               </div>

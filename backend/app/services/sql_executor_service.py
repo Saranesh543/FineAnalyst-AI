@@ -27,7 +27,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.database.session import engine
+from app.database.session import analytics_engine
 from app.schemas.execution import SQLExecutionResponse
 
 logger = logging.getLogger(__name__)
@@ -240,4 +240,4 @@ class SQLExecutorService:
 # ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------
-sql_executor_service = SQLExecutorService(db_engine=engine)
+sql_executor_service = SQLExecutorService(db_engine=analytics_engine)
