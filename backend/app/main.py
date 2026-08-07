@@ -6,6 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
@@ -48,28 +49,31 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down FineAnalyst AI Backend...")
 
+# Define middleware stack
+middleware = [
+    Middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "https://fine-analyst-ai.vercel.app"
+        ],
+        allow_origin_regex=r"https://fine-analyst-.*\.vercel\.app",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+]
+
 # Create FastAPI application instance
 app = FastAPI(
     title="FineAnalyst AI",
     description="Backend foundation for FineAnalyst AI.",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    middleware=middleware
 )
 
 app.state.limiter = limiter
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://fine-analyst-ai.vercel.app"
-    ],
-    allow_origin_regex=r"https://fine-analyst-.*\.vercel\.app",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Register global exception handlers
 app.add_exception_handler(AppException, app_exception_handler)
