@@ -74,9 +74,10 @@ class SchemaService:
     # Public API
     # ------------------------------------------------------------------
 
-    async def get_schema(self) -> DatabaseSchemaResponse:
+    async def get_schema(self, user_id: int | None = None) -> DatabaseSchemaResponse:
         """
         Discover and return the full database schema.
+        If user_id is provided, also introspects the user's specific analytics DB.
 
         Returns:
             DatabaseSchemaResponse containing all table metadata.
@@ -90,6 +91,19 @@ class SchemaService:
         try:
             async with self._engine.connect() as conn:
                 schema = await self._introspect(conn)
+                
+            if user_id is not None:
+                import os
+                from sqlalchemy.ext.asyncio import create_async_engine
+                user_db_path = f"./analytics_user_{user_id}.db"
+                if os.path.exists(user_db_path):
+                    user_engine = create_async_engine(f"sqlite+aiosqlite:///{user_db_path}")
+                    async with user_engine.connect() as user_conn:
+                        user_schema = await self._introspect(user_conn)
+                        schema.tables.extend(user_schema.tables)
+                        schema.table_count += user_schema.table_count
+                        schema.is_empty = schema.table_count == 0
+                    await user_engine.dispose()
 
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
             logger.info(

@@ -38,5 +38,6 @@ export interface Turn {
   answerText?: string
   evidence?: EvidenceArtifact[]
   followUpSuggestions?: string[]
+  attachments?: any[]
   status: "streaming" | "complete" | "error"
 }

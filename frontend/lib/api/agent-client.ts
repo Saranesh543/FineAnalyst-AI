@@ -19,6 +19,7 @@ export interface AgentChatResponse {
 
 export interface AnalyzeRequest {
   question: string;
+  session_id?: string | null;
   history?: { role: string; content: string }[];
   signal?: AbortSignal;
 }
@@ -131,6 +132,7 @@ export const agentClient = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: payload.question,
+          session_id: payload.session_id,
           history: payload.history,
         }),
         signal: payload.signal,
@@ -200,5 +202,29 @@ export const agentClient = {
       body: JSON.stringify(turn),
     });
     if (!res.ok) throw new Error("Failed to save turn");
+  },
+
+  async uploadFile(sessionId: string, file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append("session_id", sessionId);
+    formData.append("file", file);
+    
+    const res = await fetchWithAuth(`${API_BASE}/files/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) throw new Error("Failed to upload file");
+    return res.json();
+  },
+
+  async getSessionFiles(sessionId: string): Promise<any[]> {
+    const res = await fetchWithAuth(`${API_BASE}/files/session/${sessionId}`);
+    if (!res.ok) throw new Error("Failed to fetch session files");
+    return res.json();
+  },
+
+  async deleteFile(fileId: string): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE}/files/${fileId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete file");
   }
 };

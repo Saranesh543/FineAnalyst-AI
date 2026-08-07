@@ -3,6 +3,16 @@ import { Turn, ThinkingStep, EvidenceArtifact } from '../types/chat';
 import { agentClient } from '../api/agent-client';
 import { v4 as uuidv4 } from 'uuid';
 
+export interface FileAttachment {
+  id: string;
+  filename: string;
+  file_type: string;
+  size_bytes: number;
+  uploaded_at: string;
+  status?: 'uploading' | 'done' | 'error';
+  progress?: number;
+}
+
 export interface ConversationSession {
   id: string;
   title: string;
@@ -10,12 +20,14 @@ export interface ConversationSession {
   createdAt: string;
   updatedAt: string;
   messages: Turn[];
+  attachments?: FileAttachment[];
 }
 
 interface ConversationState {
   currentAbortController: AbortController | null;
   activeSessionId: string | null;
   sessions: Record<string, ConversationSession>;
+  stagedAttachments: FileAttachment[];
   isInitializing: boolean;
   
   sendMessage: (text: string) => Promise<void>;
@@ -27,12 +39,17 @@ interface ConversationState {
   
   cancelRequest: () => void;
   init: (userId: string | null) => Promise<void>;
+  
+  uploadFile: (file: File) => Promise<void>;
+  removeFile: (fileId: string) => Promise<void>;
+  fetchSessionFiles: (sessionId: string) => Promise<void>;
 }
 
 export const useConversationStore = create<ConversationState>()((set, get) => ({
   currentAbortController: null,
   activeSessionId: null,
   sessions: {},
+  stagedAttachments: [],
   isInitializing: true,
 
   cancelRequest: () => {
@@ -51,6 +68,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       set({
         sessions: {},
         activeSessionId: null,
+        stagedAttachments: [],
         isInitializing: false
       });
       return;
@@ -85,12 +103,87 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       set({
         sessions: sessionsMap,
         activeSessionId: latestSessionId,
+        stagedAttachments: [],
         isInitializing: false
       });
+
+      if (latestSessionId) {
+        get().fetchSessionFiles(latestSessionId);
+      }
       
     } catch (error) {
       console.error("[Store] Failed to initialize sessions from backend:", error);
       set({ isInitializing: false });
+    }
+  },
+
+  fetchSessionFiles: async (sessionId: string) => {
+    try {
+      const files = await agentClient.getSessionFiles(sessionId);
+      set((state) => {
+        const session = state.sessions[sessionId];
+        if (!session) return state;
+        return {
+          sessions: {
+            ...state.sessions,
+            [sessionId]: { ...session, attachments: files }
+          }
+        };
+      });
+    } catch (e) {
+      console.error("[Store] Failed to fetch session files", e);
+    }
+  },
+
+  uploadFile: async (file: File) => {
+    let { activeSessionId, sessions } = get();
+    if (!activeSessionId || !sessions[activeSessionId]) {
+      activeSessionId = await get().createNewSession();
+    }
+    const tempId = uuidv4();
+    const newAttachment: FileAttachment = {
+      id: tempId,
+      filename: file.name,
+      file_type: file.name.split('.').pop() || 'unknown',
+      size_bytes: file.size,
+      uploaded_at: new Date().toISOString(),
+      status: 'uploading',
+      progress: 0
+    };
+    
+    set((state) => ({
+      stagedAttachments: [...state.stagedAttachments, newAttachment]
+    }));
+
+    try {
+      const uploadedFile = await agentClient.uploadFile(activeSessionId!, file);
+      set((state) => ({
+        stagedAttachments: state.stagedAttachments.map(a => 
+          a.id === tempId ? { ...uploadedFile, status: 'done' } : a
+        )
+      }));
+    } catch (e) {
+      console.error("[Store] Failed to upload file", e);
+      set((state) => ({
+        stagedAttachments: state.stagedAttachments.map(a => 
+          a.id === tempId ? { ...a, status: 'error' } : a
+        )
+      }));
+    }
+  },
+
+  removeFile: async (fileId: string) => {
+    const { activeSessionId } = get();
+    if (!activeSessionId) return;
+
+    set((state) => ({
+      stagedAttachments: state.stagedAttachments.filter(a => a.id !== fileId)
+    }));
+
+    try {
+      await agentClient.deleteFile(fileId);
+    } catch (e) {
+      console.error("[Store] Failed to delete file", e);
     }
   },
 
@@ -132,6 +225,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
 
   switchSession: (id: string) => {
     set({ activeSessionId: id });
+    get().fetchSessionFiles(id);
   },
 
   deleteSession: async (id: string) => {
@@ -202,14 +296,17 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
     const reqId = uuidv4().slice(0, 8);
     get().cancelRequest(); // Cancel any ongoing request
 
-    let { activeSessionId, sessions, updateTurn, updateSessionTitle } = get();
+    let { activeSessionId, sessions, stagedAttachments, updateTurn, updateSessionTitle } = get();
     
     if (!activeSessionId || !sessions[activeSessionId]) {
       activeSessionId = await get().createNewSession();
     }
 
     const abortController = new AbortController();
-    set({ currentAbortController: abortController });
+    set({ 
+      currentAbortController: abortController,
+      stagedAttachments: [] // Clear staged attachments immediately
+    });
 
     // 1. Add User Turn
     const userTurn: Turn = {
@@ -217,7 +314,8 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       role: 'user',
       createdAt: new Date().toISOString(),
       userText: text,
-      status: 'complete'
+      status: 'complete',
+      attachments: stagedAttachments
     };
     
     // Save user turn to backend
@@ -288,7 +386,12 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         return { role: m.role, content };
       });
 
-      const analyzeRes = await agentClient.analyze({ question: text, history, signal: abortController.signal });
+      const analyzeRes = await agentClient.analyze({ 
+        question: text, 
+        session_id: activeSessionId,
+        history, 
+        signal: abortController.signal 
+      });
       isFetching = false;
       const isDbIntent = analyzeRes.intent === 'database' || analyzeRes.intent === 'schema';
 

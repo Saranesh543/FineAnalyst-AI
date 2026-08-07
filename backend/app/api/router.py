@@ -11,6 +11,7 @@ from app.api.analyze import router as analyze_router
 from app.api.debug import router as debug_router
 from app.api.auth import router as auth_router
 from app.api.sessions import router as sessions_router
+from app.api.files import router as files_router
 
 api_router = APIRouter()
 
@@ -30,3 +31,4 @@ api_router.include_router(insight_router, dependencies=protected_dependencies)
 api_router.include_router(analyze_router, dependencies=protected_dependencies)
 api_router.include_router(debug_router, dependencies=protected_dependencies)
 api_router.include_router(sessions_router, dependencies=protected_dependencies)
+api_router.include_router(files_router, dependencies=protected_dependencies)

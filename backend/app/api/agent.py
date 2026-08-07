@@ -11,8 +11,11 @@ from __future__ import annotations
 import logging
 import traceback
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, Depends
 from fastapi.responses import JSONResponse
+
+from app.api.deps import get_current_user
+from app.models.user import User
 
 from app.schemas.agent import AgentErrorResponse, AgentRequest, AgentResponse
 from app.services.agent_service import agent_service
@@ -42,7 +45,10 @@ router = APIRouter(prefix="/agent", tags=["Agent"])
         500: {"model": AgentErrorResponse, "description": "Agent runtime error."},
     },
 )
-async def chat(payload: AgentRequest) -> JSONResponse:
+async def chat(
+    payload: AgentRequest,
+    current_user: User = Depends(get_current_user)
+) -> JSONResponse:
     import uuid
     import time
     
@@ -55,6 +61,7 @@ async def chat(payload: AgentRequest) -> JSONResponse:
             user_message=payload.message,
             session_id=payload.session_id,
             history=payload.history,
+            user_id=current_user.id
         )
 
         if isinstance(result, AgentErrorResponse):

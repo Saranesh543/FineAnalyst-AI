@@ -39,8 +39,11 @@ class AnalyzeRequest(BaseModel):
 
     question: str = Field(
         ...,
-        min_length=2,
-        description="The natural-language business question to analyze.",
+        description="The natural-language business question to analyze. Can be short if attachments are provided.",
+    )
+    session_id: str | None = Field(
+        default=None,
+        description="The session ID to link to attachments",
     )
     history: list[MessageTurn] | None = Field(
         default=None,

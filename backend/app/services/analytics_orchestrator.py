@@ -43,32 +43,65 @@ class AnalyticsOrchestratorService:
     def __init__(self) -> None:
         logger.debug("AnalyticsOrchestratorService initialised.")
 
-    async def analyze(self, question: str, history: list[MessageTurn] | None = None) -> AnalyzeResponse:
+    async def analyze(self, question: str, history: list[MessageTurn] | None = None, user_id: int | None = None, session_id: str | None = None) -> AnalyzeResponse:
         """
         Executes the full analytics workflow.
 
         Args:
             question: The user's natural language question.
             history: Optional list of previous questions for context.
-
-        Returns:
-            AnalyzeResponse containing the SQL, results, visualization, and insights.
+            user_id: Optional ID of the user requesting the analysis.
+            session_id: Optional session ID to fetch attachments.
         """
         t_start = time.perf_counter()
         request_id = id(self)
         logger.info("[%s] Starting analytics workflow for question: %s", request_id, question)
         
         steps: list[WorkflowStep] = []
+        
+        context_injected_question = question
+        
+        # Inject file attachments if session_id is provided
+        if session_id and user_id:
+            try:
+                from sqlalchemy.ext.asyncio import AsyncSession
+                from app.database.session import AsyncSessionLocal
+                from sqlalchemy import select
+                from app.models.chat import FileAttachment
+                
+                async with AsyncSessionLocal() as db:
+                    result = await db.execute(
+                        select(FileAttachment).where(
+                            FileAttachment.session_id == session_id,
+                            FileAttachment.user_id == user_id
+                        )
+                    )
+                    attachments = result.scalars().all()
+                    
+                    if attachments:
+                        logger.info("[%s] Resolved %d uploaded files for session_id=%s", request_id, len(attachments), session_id)
+                        file_context = "Context from uploaded files:\n"
+                        for att in attachments:
+                            logger.info("[%s] Including attachment: %s (type=%s, table=%s)", request_id, att.filename, att.file_type, att.table_name)
+                            if att.table_name:
+                                file_context += f"--- {att.filename} ---\nThis structured file was imported into the database table `{att.table_name}`. Query this table to answer questions about this file.\n\n"
+                            elif att.extracted_text:
+                                file_context += f"--- {att.filename} ---\n{att.extracted_text[:10000]}\n\n"
+                        
+                        context_injected_question = f"{file_context}\n\nUser Question:\n{question}"
+                        logger.info("[%s] Final injected context input:\n%s", request_id, context_injected_question[:500] + ("..." if len(context_injected_question) > 500 else ""))
+            except Exception as e:
+                logger.error("Failed to fetch attachments for orchestrator context: %s", e)
 
         # -----------------------------------------------------------------------
         # 1. Intent Classification
         # -----------------------------------------------------------------------
         step_start = time.perf_counter()
         try:
-            intent_result = await intent_router.classify(question, history=history)
+            intent_result = await intent_router.classify(context_injected_question, history=history)
             
             # Use corrected message internally if available, else original
-            internal_query = intent_result.corrected_message if intent_result.corrected_message else question
+            internal_query = intent_result.corrected_message if intent_result.corrected_message else context_injected_question
             
             logger.info("[%s] Classified intent: %s | internal_query: %r", request_id, intent_result.intent, internal_query)
             
@@ -96,7 +129,7 @@ class AnalyticsOrchestratorService:
             if intent_result.intent == Intent.SCHEMA:
                 logger.info("[%s] Fetching schema for SCHEMA intent...", request_id)
                 step_start = time.perf_counter()
-                schema_response = await schema_service.get_schema()
+                schema_response = await schema_service.get_schema(user_id=user_id)
                 steps.append(WorkflowStep(
                     name="schema_discovery",
                     status="done",
@@ -159,7 +192,7 @@ class AnalyticsOrchestratorService:
         step_start = time.perf_counter()
         try:
             logger.info("[%s] Discovering schema...", request_id)
-            schema_response = await schema_service.get_schema()
+            schema_response = await schema_service.get_schema(user_id=user_id)
             logger.info("[%s] Discovered %d tables", request_id, len(schema_response.tables))
             steps.append(WorkflowStep(
                 name="schema_discovery",
@@ -184,7 +217,7 @@ class AnalyticsOrchestratorService:
         step_start = time.perf_counter()
         try:
             logger.info("[%s] Generating SQL...", request_id)
-            sql_response = await sql_generator_service.generate(question, schema_response, history=history)
+            sql_response = await sql_generator_service.generate(internal_query, schema_response, history=history)
             logger.info("[%s] SQL generated", request_id)
             steps.append(WorkflowStep(
                 name="sql_generation",
@@ -196,7 +229,7 @@ class AnalyticsOrchestratorService:
             logger.warning("[%s] Schema validation failed. Attempting retry...", request_id)
             try:
                 sql_response = await sql_generator_service.generate_retry(
-                    question=question,
+                    question=internal_query,
                     schema=schema_response,
                     previous_sql=getattr(exc, "sql", ""),
                     validation_error=exc
@@ -278,7 +311,7 @@ class AnalyticsOrchestratorService:
         step_start = time.perf_counter()
         try:
             logger.info("[%s] Executing SQL...", request_id)
-            execution_response = await sql_executor_service.execute_sql(sql_response.sql)
+            execution_response = await sql_executor_service.execute_sql(sql_response.sql, user_id=user_id, user_question=internal_query)
             logger.info("[%s] Rows returned: %d", request_id, execution_response.row_count)
             steps.append(WorkflowStep(
                 name="sql_execution",

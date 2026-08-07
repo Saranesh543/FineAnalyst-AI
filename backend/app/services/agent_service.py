@@ -69,6 +69,7 @@ class AgentService:
         user_message: str,
         session_id: str | None = None,
         history: list[MessageTurn] | None = None,
+        user_id: int | None = None,
     ) -> AgentResponse | AgentErrorResponse:
         """
         Send *user_message* to the agent and return a structured response.
@@ -77,6 +78,7 @@ class AgentService:
             user_message: The raw text from the user.
             session_id:   Optional identifier for conversation continuity.
             history:      List of previous message turns for context.
+            user_id:      Optional identifier of the user to fetch attachments.
 
         Returns:
             AgentResponse on success, AgentErrorResponse on failure.
@@ -101,6 +103,38 @@ class AgentService:
                     model_history.append(ModelRequest(parts=[UserPromptPart(content=turn.content)]))
                 elif turn.role == MessageRole.ASSISTANT:
                     model_history.append(ModelResponse(parts=[TextPart(content=turn.content)]))
+                    
+        # Inject extracted text from attachments if any
+        if session_id and user_id:
+            try:
+                from sqlalchemy.ext.asyncio import AsyncSession
+                from app.database.session import AsyncSessionLocal
+                from sqlalchemy import select
+                from app.models.chat import FileAttachment
+                
+                async with AsyncSessionLocal() as db:
+                    result = await db.execute(
+                        select(FileAttachment).where(
+                            FileAttachment.session_id == session_id,
+                            FileAttachment.user_id == user_id
+                        )
+                    )
+                    attachments = result.scalars().all()
+                    
+                    if attachments:
+                        logger.info("[request_id=%s] Resolved %d uploaded files for session_id=%s", request_id, len(attachments), session_id)
+                        file_context = "Context from uploaded files:\n"
+                        for att in attachments:
+                            logger.info("[request_id=%s] Including attachment: %s (type=%s, table=%s)", request_id, att.filename, att.file_type, att.table_name)
+                            if att.table_name:
+                                file_context += f"--- {att.filename} ---\nThis structured file was imported into the database table `{att.table_name}`. Query this table to answer questions about this file.\n\n"
+                            elif att.extracted_text:
+                                file_context += f"--- {att.filename} ---\n{att.extracted_text[:5000]}\n\n"
+                        
+                        user_message = f"{file_context}\n\nUser Question:\n{user_message}"
+                        logger.info("[request_id=%s] Final injected user message:\n%s", request_id, user_message[:500] + ("..." if len(user_message) > 500 else ""))
+            except Exception as e:
+                logger.error("Failed to fetch attachments for context: %s", e)
 
         try:
             agent = get_agent()  # lazy — raises ValueError if key is missing

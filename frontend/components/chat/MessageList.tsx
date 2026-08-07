@@ -3,7 +3,7 @@
 import { Turn } from "@/lib/types/chat";
 import { AssistantAnswerText } from "./AssistantAnswerText";
 import { EvidenceArtifactRenderer } from "../evidence/EvidenceArtifactRenderer";
-import { User, Sparkles, CheckCircle2, CircleDashed, XCircle, FastForward, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
+import { User, Sparkles, CheckCircle2, CircleDashed, XCircle, FastForward, ChevronDown, ChevronRight, Copy, Check, File as FileIcon } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useConversationStore } from "@/lib/store/conversation-store";
@@ -68,6 +68,16 @@ export function MessageList({ messages }: MessageListProps) {
         <div key={msg.id} className={cn("flex flex-col w-full", msg.role === "user" ? "items-end" : "items-start")}>
           {msg.role === "user" ? (
             <div className="flex flex-col max-w-[85%] bg-primary text-primary-foreground px-5 py-3.5 rounded-2xl rounded-tr-sm shadow-sm">
+              {msg.attachments && msg.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {msg.attachments.map((file: any) => (
+                    <div key={file.id} className="flex items-center gap-2 bg-primary-foreground/10 border border-primary-foreground/20 rounded-xl px-3 py-1.5 text-sm">
+                      <FileIcon className="h-4 w-4 opacity-80" />
+                      <span className="max-w-[150px] truncate font-medium">{file.filename}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <span className="whitespace-pre-wrap">{msg.userText}</span>
             </div>
           ) : (

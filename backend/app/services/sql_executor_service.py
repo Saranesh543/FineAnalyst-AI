@@ -137,12 +137,14 @@ class SQLExecutorService:
         self._engine = db_engine
         logger.debug("SQLExecutorService initialised.")
 
-    async def execute_sql(self, sql: str) -> SQLExecutionResponse:
+    async def execute_sql(self, sql: str, user_id: int | None = None, user_question: str = "") -> SQLExecutionResponse:
         """
         Validate and execute the SQL query.
 
         Args:
             sql: The raw SQL query string to execute.
+            user_id: Optional user identifier to attach specific user databases or views.
+            user_question: The user's question, for logging purposes.
 
         Returns:
             SQLExecutionResponse containing the columns, rows, row count,
@@ -179,44 +181,82 @@ class SQLExecutorService:
 
         try:
             async with self._engine.connect() as conn:
-                result = await conn.execute(text(validated_sql))
-                
-                # Extract column names (if result yields rows)
-                if result.returns_rows:
-                    raw_columns = list(result.keys())
+                try:
+                    if user_id is not None:
+                        import os
+                        user_db_path = f"./analytics_user_{user_id}.db"
+                        if os.path.exists(user_db_path):
+                            # Connection pooling can cause user_db to remain attached from a previous request.
+                            # Detach it first if it exists.
+                            try:
+                                await conn.execute(text("DETACH DATABASE user_db"))
+                            except Exception:
+                                pass
+
+                            # Attach the user database
+                            await conn.execute(text(f"ATTACH DATABASE '{user_db_path}' AS user_db"))
+                            
+                            # Create temp views for all tables in user_db so they can be queried without the 'user_db.' prefix
+                            user_tables_result = await conn.execute(text("SELECT name FROM user_db.sqlite_master WHERE type='table'"))
+                            for (t_name,) in user_tables_result.all():
+                                await conn.execute(text(f"CREATE TEMP VIEW IF NOT EXISTS {t_name} AS SELECT * FROM user_db.{t_name}"))
+
+                    result = await conn.execute(text(validated_sql))
                     
-                    # Deduplicate cleaned column names
-                    seen = set()
-                    for c in raw_columns:
-                        cleaned = _clean_column_name(c)
-                        base_cleaned = cleaned
-                        counter = 1
-                        while cleaned in seen:
-                            cleaned = f"{base_cleaned} {counter}"
-                            counter += 1
-                        seen.add(cleaned)
-                        columns.append(cleaned)
-                    
-                    # Fetch all rows and convert each tuple to a list
-                    for row in result.all():
-                        rows.append(list(row))
+                    # Extract column names (if result yields rows)
+                    if result.returns_rows:
+                        raw_columns = list(result.keys())
+                        
+                        # Deduplicate cleaned column names
+                        seen = set()
+                        for c in raw_columns:
+                            cleaned = _clean_column_name(c)
+                            base_cleaned = cleaned
+                            counter = 1
+                            while cleaned in seen:
+                                cleaned = f"{base_cleaned} {counter}"
+                                counter += 1
+                            seen.add(cleaned)
+                            columns.append(cleaned)
+                        
+                        # Fetch all rows and convert each tuple to a list
+                        for row in result.all():
+                            rows.append(list(row))
+                finally:
+                    # Always try to detach the database to prevent polluting the connection pool
+                    if user_id is not None:
+                        try:
+                            await conn.execute(text("DETACH DATABASE user_db"))
+                        except Exception:
+                            pass
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
             db_path = str(self._engine.url)
-            logger.exception(
-                "[%s] SQL execution failed\n"
-                "  SQL: %s\n"
-                "  DB Path: %s\n"
-                "  Elapsed: %.1f ms\n"
-                "  Error: %s: %s",
+            
+            # Extract underlying SQLite exception if possible
+            sqlalchemy_msg = str(exc)
+            sqlite_msg = str(getattr(exc, 'orig', 'N/A'))
+            
+            logger.error(
+                "[%s] SQL Execution Debug Info:\n"
+                "1. User question: %s\n"
+                "2. Generated SQL: %s\n"
+                "3. SQL parameters: None (using raw text generation)\n"
+                "4. Database connection used: %s\n"
+                "5. Database filename: %s\n"
+                "6. Exception type: %s\n"
+                "8. SQLAlchemy exception message: %s\n"
+                "9. SQLite exception message: %s",
                 request_id,
+                user_question,
                 validated_sql,
+                "analytics_engine (AsyncEngine)",
                 db_path,
-                elapsed_ms,
                 type(exc).__name__,
-                exc,
-                exc_info=True,
+                sqlalchemy_msg,
+                sqlite_msg
             )
+            logger.exception("[%s] 7. Full stack trace:", request_id)
             raise SQLExecutionFailedError(f"Database execution failed: {exc}") from exc
 
         elapsed_ms = (time.perf_counter() - t_start) * 1_000

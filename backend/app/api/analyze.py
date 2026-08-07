@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, Depends
 from fastapi.responses import JSONResponse
 import pydantic_ai.exceptions
+
+from app.api.deps import get_current_user
+from app.models.user import User
 
 from app.schemas.analyze import (
     AnalyzeErrorResponse,
@@ -55,7 +58,10 @@ router = APIRouter(prefix="/analyze", tags=["Analytics Workflow"])
         },
     },
 )
-async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
+async def analyze_workflow(
+    payload: AnalyzeRequest,
+    current_user: User = Depends(get_current_user)
+) -> JSONResponse:
     import uuid
     import time
     
@@ -66,7 +72,9 @@ async def analyze_workflow(payload: AnalyzeRequest) -> JSONResponse:
     try:
         response = await analytics_orchestrator.analyze(
             question=payload.question,
-            history=payload.history
+            history=payload.history,
+            user_id=current_user.id,
+            session_id=payload.session_id
         )
         response_json = response.model_dump(mode="json")
         logger.info("[%s] Analyze completed successfully. HTTP 200.", request_id)
