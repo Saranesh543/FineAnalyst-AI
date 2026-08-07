@@ -8,6 +8,7 @@ export interface AgentChatRequest {
   message: string;
   session_id?: string | null;
   history?: { role: string; content: string }[];
+  signal?: AbortSignal;
 }
 
 export interface AgentChatResponse {
@@ -19,6 +20,7 @@ export interface AgentChatResponse {
 export interface AnalyzeRequest {
   question: string;
   history?: { role: string; content: string }[];
+  signal?: AbortSignal;
 }
 
 export interface KPICard {
@@ -100,7 +102,12 @@ export const agentClient = {
       const res = await fetchWithAuth(`${API_BASE}/agent/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          message: payload.message,
+          session_id: payload.session_id,
+          history: payload.history,
+        }),
+        signal: payload.signal,
       });
       console.log(`[AgentClient] chat HTTP status: ${res.status}, Time: ${Date.now() - start}ms`);
       if (!res.ok) {
@@ -122,7 +129,11 @@ export const agentClient = {
       const res = await fetchWithAuth(`${API_BASE}/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          question: payload.question,
+          history: payload.history,
+        }),
+        signal: payload.signal,
       });
       console.log(`[AgentClient] analyze HTTP status: ${res.status}, Time: ${Date.now() - start}ms`);
       if (!res.ok) {

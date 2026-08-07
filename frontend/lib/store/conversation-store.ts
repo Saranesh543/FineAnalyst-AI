@@ -13,6 +13,7 @@ export interface ConversationSession {
 }
 
 interface ConversationState {
+  currentAbortController: AbortController | null;
   activeSessionId: string | null;
   sessions: Record<string, ConversationSession>;
   isInitializing: boolean;
@@ -24,13 +25,23 @@ interface ConversationState {
   deleteSession: (id: string) => Promise<void>;
   updateSessionTitle: (id: string, title: string, isCustom?: boolean) => Promise<void>;
   
+  cancelRequest: () => void;
   init: (userId: string | null) => Promise<void>;
 }
 
 export const useConversationStore = create<ConversationState>()((set, get) => ({
+  currentAbortController: null,
   activeSessionId: null,
   sessions: {},
   isInitializing: true,
+
+  cancelRequest: () => {
+    const { currentAbortController } = get();
+    if (currentAbortController) {
+      currentAbortController.abort();
+      set({ currentAbortController: null });
+    }
+  },
 
   init: async (userId: string | null) => {
     set({ isInitializing: true });
@@ -189,11 +200,16 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
 
   sendMessage: async (text: string) => {
     const reqId = uuidv4().slice(0, 8);
+    get().cancelRequest(); // Cancel any ongoing request
+
     let { activeSessionId, sessions, updateTurn, updateSessionTitle } = get();
     
     if (!activeSessionId || !sessions[activeSessionId]) {
       activeSessionId = await get().createNewSession();
     }
+
+    const abortController = new AbortController();
+    set({ currentAbortController: abortController });
 
     // 1. Add User Turn
     const userTurn: Turn = {
@@ -272,13 +288,13 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         return { role: m.role, content };
       });
 
-      const analyzeRes = await agentClient.analyze({ question: text, history });
+      const analyzeRes = await agentClient.analyze({ question: text, history, signal: abortController.signal });
       isFetching = false;
       const isDbIntent = analyzeRes.intent === 'database' || analyzeRes.intent === 'schema';
 
       let chatRes = null;
       if (!isDbIntent) {
-        chatRes = await agentClient.chat({ message: text, session_id: activeSessionId, history });
+        chatRes = await agentClient.chat({ message: text, session_id: activeSessionId, history, signal: abortController.signal });
       }
 
       get().updateTurn(assistantTurnId, t => ({
@@ -374,8 +390,21 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         agentClient.saveTurn(activeSessionId!, finalTurnState).catch(e => console.error("Failed to save assistant turn", e));
       }
 
+      set({ currentAbortController: null });
+
     } catch (error: any) {
       isFetching = false;
+      
+      if (error.name === 'AbortError') {
+        console.log('[Store] Request was aborted');
+        get().updateTurn(assistantTurnId, t => ({
+          ...t,
+          status: 'complete',
+          answerText: t.answerText || "Request cancelled.",
+        }));
+        return;
+      }
+      
       let backendSteps: ThinkingStep[] = [];
       if (error.response?.data?.steps) {
         backendSteps = error.response.data.steps.map((s: any) => ({

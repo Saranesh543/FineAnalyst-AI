@@ -1,17 +1,18 @@
 "use client";
 
 import { useState, FormEvent, useRef, useEffect } from "react";
-import { Send, Loader2, Paperclip, Mic, ArrowUpRight } from "lucide-react";
+import { Send, Loader2, Paperclip, Mic, ArrowUpRight, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface ComposerProps {
   onSend: (text: string) => void;
+  onCancel?: () => void;
   isStreaming: boolean;
   className?: string;
 }
 
-export function Composer({ onSend, isStreaming, className = "" }: ComposerProps) {
+export function Composer({ onSend, onCancel, isStreaming, className = "" }: ComposerProps) {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -24,7 +25,7 @@ export function Composer({ onSend, isStreaming, className = "" }: ComposerProps)
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     console.log(`[Composer] handleSubmit triggered. text="${text}", isStreaming=${isStreaming}`);
-    if (text.trim() && !isStreaming) {
+    if (text.trim()) {
       console.log(`[Composer] Calling onSend for text: "${text.trim()}"`);
       onSend(text.trim());
       setText("");
@@ -49,7 +50,6 @@ export function Composer({ onSend, isStreaming, className = "" }: ComposerProps)
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="What would you like to analyze today?"
-          disabled={isStreaming}
           className="w-full h-full resize-none bg-transparent px-6 pt-6 pb-2 outline-none disabled:opacity-50 text-foreground text-lg placeholder:text-muted-foreground/70"
           rows={1}
         />
@@ -73,14 +73,25 @@ export function Composer({ onSend, isStreaming, className = "" }: ComposerProps)
               </TooltipTrigger>
               <TooltipContent>Coming Soon</TooltipContent>
             </Tooltip>
-            <Button 
-              type="submit" 
-              size="icon" 
-              disabled={!text.trim() || isStreaming}
-              className="rounded-full h-12 w-12 shrink-0 bg-cyan-400 hover:bg-cyan-300 text-black shadow-[0_0_15px_rgba(34,211,238,0.4)] disabled:opacity-50 disabled:shadow-none mb-1 mr-1"
-            >
-              {isStreaming ? <Loader2 className="h-6 w-6 animate-spin" /> : <ArrowUpRight className="h-6 w-6" />}
-            </Button>
+            {isStreaming ? (
+              <Button 
+                type="button" 
+                size="icon" 
+                onClick={onCancel}
+                className="rounded-full h-12 w-12 shrink-0 bg-red-500 hover:bg-red-400 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)] mb-1 mr-1"
+              >
+                <Square className="h-5 w-5 fill-current" />
+              </Button>
+            ) : (
+              <Button 
+                type="submit" 
+                size="icon" 
+                disabled={!text.trim()}
+                className="rounded-full h-12 w-12 shrink-0 bg-cyan-400 hover:bg-cyan-300 text-black shadow-[0_0_15px_rgba(34,211,238,0.4)] disabled:opacity-50 disabled:shadow-none mb-1 mr-1"
+              >
+                <ArrowUpRight className="h-6 w-6" />
+              </Button>
+            )}
           </div>
         </div>
       </form>
