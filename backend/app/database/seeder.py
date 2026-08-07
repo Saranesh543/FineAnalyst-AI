@@ -33,7 +33,7 @@ def _needs_seeding(db_path: str) -> bool:
         return True
 
 
-def seed_database(db_path: str = "fineanalyst.db") -> None:
+def seed_database(db_path: str = "analytics.db") -> None:
     """
     Create and populate the FineAnalyst demo database.
     Only runs if the database is empty or missing.
