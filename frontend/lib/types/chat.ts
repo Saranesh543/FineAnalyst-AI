@@ -9,8 +9,8 @@ export interface ThinkingStep {
 
 export interface EvidenceArtifact {
   id: string
-  kind: "chart" | "table" | "single_metric" | "data_grid" | "map" | "kpi"
-  chartType?: "bar" | "line" | "pie" | "scatter" | "data_grid" | "map" | "kpi"
+  kind: "chart" | "table" | "single_metric" | "data_grid" | "map" | "kpi" | "mermaid"
+  chartType?: "bar" | "line" | "pie" | "scatter" | "data_grid" | "map" | "kpi" | "mermaid"
   data: Record<string, any>[]
   encoding?: { x?: string; y?: string; series?: string }
   sql: string
@@ -40,4 +40,5 @@ export interface Turn {
   followUpSuggestions?: string[]
   attachments?: any[]
   status: "streaming" | "complete" | "error"
+  queryPlan?: any
 }

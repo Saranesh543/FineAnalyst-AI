@@ -14,9 +14,20 @@ export function SqlViewer({ sql }: { sql: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const lines = sql.trim().split('\n');
-  const displayLines = expanded ? lines : lines.slice(0, 8);
-  const isTruncated = lines.length > 8;
+  const formatSQL = (rawSql: string) => {
+    // If it already has multiple lines, assume it's formatted
+    if (rawSql.split('\n').length > 2) return rawSql;
+    
+    return rawSql
+      .replace(/\s+(FROM|WHERE|GROUP BY|ORDER BY|LIMIT|HAVING|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN)\s+/gi, '\n$1 ')
+      .replace(/^(SELECT)\s+/i, '$1\n    ')
+      .replace(/,\s*/g, ',\n    ');
+  };
+
+  const displaySql = formatSQL(sql.trim());
+  const lines = displaySql.split('\n');
+  const displayLines = expanded ? lines : lines.slice(0, 15);
+  const isTruncated = lines.length > 15;
 
   // Simple pseudo-syntax highlighting by colorizing keywords
   const highlightLine = (line: string) => {

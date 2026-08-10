@@ -66,6 +66,14 @@ class AnalyzeResponse(BaseModel):
         default=None,
         description="The classified intent (conversation, knowledge, database).",
     )
+    query_plan: dict[str, Any] | None = Field(
+        default=None,
+        description="The extracted QueryPlan if generated."
+    )
+    clarification_question: str | None = Field(
+        default=None,
+        description="The question to ask the user to clarify their intent, if applicable."
+    )
     sql: str | None = Field(
         default=None,
         description="The generated SQL query."
@@ -74,15 +82,15 @@ class AnalyzeResponse(BaseModel):
         default=None,
         description="The database execution results (columns, rows, execution time)."
     )
-    visualization: VisualizationRecommendation | None = Field(
+    visualizations: list[VisualizationRecommendation] | None = Field(
         default=None,
-        description="The recommended chart format."
+        description="The recommended chart formats."
     )
     insight: BusinessInsightResponse | None = Field(
         default=None,
         description="The generated business insights (summary, key findings, etc)."
     )
-    chart_metadata: dict[str, Any] | None = Field(
+    chart_metadata: list[dict[str, Any]] | None = Field(
         default=None,
         description="Rich metadata describing the visualization properties for the frontend."
     )

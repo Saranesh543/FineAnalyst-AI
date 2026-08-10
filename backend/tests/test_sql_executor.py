@@ -116,7 +116,7 @@ async def test_execute_sql_success_multiple_rows():
     
     response = await service.execute_sql("SELECT * FROM users")
     assert response.row_count == 2
-    assert response.columns == ["id", "name"]
+    assert response.columns == ["Id", "Name"]
     assert response.rows == [[1, "Alice"], [2, "Bob"]]
     assert response.execution_time_ms >= 0
 
@@ -139,7 +139,7 @@ async def test_execute_sql_success_one_row():
     
     response = await service.execute_sql("SELECT COUNT(*) as count FROM users")
     assert response.row_count == 1
-    assert response.columns == ["count"]
+    assert response.columns == ["Count"]
     assert response.rows == [[42]]
 
 
@@ -148,7 +148,7 @@ async def test_execute_sql_success_empty_result():
     """Execution returns empty result correctly."""
     mock_result = MagicMock()
     mock_result.returns_rows = True
-    mock_result.keys.return_value = ["id", "name"]
+    mock_result.keys.return_value = ["Id", "Name"]
     mock_result.all.return_value = []
 
     engine = MagicMock()
@@ -163,7 +163,7 @@ async def test_execute_sql_success_empty_result():
     
     response = await service.execute_sql("SELECT * FROM users WHERE id = -1")
     assert response.row_count == 0
-    assert response.columns == ["id", "name"]
+    assert response.columns == ["Id", "Name"]
     assert response.rows == []
 
 

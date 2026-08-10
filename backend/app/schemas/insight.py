@@ -29,9 +29,9 @@ class BusinessInsightRequest(BaseModel):
         ...,
         description="The result of the executed SQL query.",
     )
-    visualization: VisualizationRecommendation = Field(
+    visualizations: list[VisualizationRecommendation] = Field(
         ...,
-        description="The recommended visualization format for this data.",
+        description="The recommended visualization formats for this data.",
     )
 
 
@@ -55,11 +55,11 @@ class BusinessInsightResponse(BaseModel):
     summary: str = Field(
         description="Executive summary of the data."
     )
-    kpi_cards: list[KPICard] = Field(
+    kpi_cards: list[KPICard] | None = Field(
         default_factory=list,
         description="List of KPI cards derived from the data."
     )
-    key_findings: list[str] = Field(
+    key_findings: list[str] | None = Field(
         default_factory=list,
         description="Key findings derived from the data (3-6 concise bullet points). Highlight important values using bold."
     )
@@ -67,15 +67,15 @@ class BusinessInsightResponse(BaseModel):
         default="",
         description="Detailed explanation of the findings in paragraphs."
     )
-    anomalies: list[str] = Field(
+    anomalies: list[str] | None = Field(
         default_factory=list,
         description="Anomalies, outliers, or significant differences detected in the data (if any)."
     )
-    recommendations: list[str] = Field(
+    recommendations: list[str] | None = Field(
         default_factory=list,
         description="Actionable business recommendations derived from this data (3-5 bullet points)."
     )
-    suggested_questions: list[str] = Field(
+    suggested_questions: list[str] | None = Field(
         default_factory=list,
         description="Intelligent follow-up analytical questions (3-5 bullet points)."
     )

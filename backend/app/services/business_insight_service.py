@@ -47,9 +47,9 @@ OUTPUT RULES:
 3. Generate KPI Cards from the overall data. Format them properly (e.g., format="currency", "percentage", "decimal", "compact", or "text"). Do not invent KPIs not supported by the data.
 4. NEVER perform mathematical arithmetic in the KPI card values (e.g. DO NOT output `10+20`). Always use the PRE-CALCULATED METRICS provided in the prompt, or output a single primitive float.
 5. Identify any obvious anomalies or outliers in the provided data. If none, leave empty.
-6. Recommend 3-5 actionable business recommendations derived ONLY from this data as a JSON **array of strings**. Never use * or - bullet syntax. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
+6. Recommend 3-5 actionable business recommendations derived ONLY from this data as a JSON **array of strings**. Never use * or - bullet syntax. Do not generate generic advice (e.g., "Review revenue", "Improve performance"). Recommendations MUST be supported by available data. Do not recommend analyzing entities (like customer segments) if no such column exists. If there is insufficient evidence, return exactly: "No evidence-based recommendation could be generated."
 7. Generate 3-5 intelligent, context-aware suggested follow-up questions as a JSON **array of strings**. Never use * or - bullet syntax. NEVER repeat the user's current question. NEVER generate generic suggestions. The suggestions MUST naturally extend the current conversation and analysis results (e.g., if the user asks "Who are top customers?", suggest "Show monthly spending of these customers", "Compare top customers by region", etc). They MUST be directly executable by the SQL database, unique, and business-focused. NEVER copy recommendations into suggested questions.
-8. Generate a `detailed_analysis` explaining the findings in paragraphs.
+8. Generate a `detailed_analysis` explaining the findings in paragraphs. You MUST distinguish between FACT, OBSERVATION, and POSSIBLE EXPLANATION. Do NOT make unsupported causal claims. (e.g., DO NOT say "Pricing caused revenue growth" if pricing is not in the data. DO say "Revenue increased, but the cause cannot be determined from this dataset.")
 9. Generate a `conclusion` that summarizes everything in one sentence.
 10. Automatically render ALL important metrics (revenue, counts, percentages, currency, totals, averages, dates) in **bold** throughout ALL text fields.
 11. Do NOT blindly duplicate the exact numbers that are already displayed in the `kpi_cards`. Instead, the text (`detailed_analysis`, `summary`, etc.) should focus on explaining the "why", the context, and the insights, rather than just repeating values.
@@ -82,15 +82,13 @@ def _get_insight_agent() -> Agent:
     return Agent(
         model=model,
         system_prompt=_SYSTEM_PROMPT,
-        output_type=BusinessInsightResponse,
-        retries=2,
     )
 
 
 def _build_insight_prompt(
     question: str,
     execution_result: SQLExecutionResponse,
-    visualization: VisualizationRecommendation,
+    visualizations: list[VisualizationRecommendation],
 ) -> str:
     """Constructs the prompt string with all context needed for the AI."""
     
@@ -100,22 +98,24 @@ def _build_insight_prompt(
     truncated_msg = ""
     if execution_result.row_count > max_rows:
         truncated_msg = f" (Showing first {max_rows} of {execution_result.row_count} rows)"
+        
+    import json
+    vis_json = json.dumps([v.model_dump() for v in visualizations], indent=2)
 
     lines = [
-        f"Original Question: {question}",
-        f"Recommended Chart: {visualization.chart} (Confidence: {visualization.confidence})",
-        f"Chart Reason: {visualization.reason}",
-        "",
-        "--- DATA EXECUTED ---",
+        f"--- USER QUESTION ---",
+        f"{question}",
+        f"",
+        f"--- DATA CONTEXT ---",
+        f"Total Rows: {execution_result.row_count}{truncated_msg}",
         f"Columns: {execution_result.columns}",
-        f"Rows Returned: {execution_result.row_count}{truncated_msg}",
-        "",
-        "Rows:"
+        f"Data: {rows_to_show}",
+        f"",
+        f"--- VISUALIZATIONS ---",
+        f"{vis_json}",
+        f"",
     ]
     
-    for row in rows_to_show:
-        lines.append(str(row))
-        
     # --- DETERMINISTIC METRICS CALCULATION ---
     metrics = []
     numeric_cols = []
@@ -133,11 +133,20 @@ def _build_insight_prompt(
             vals = [row[idx] for row in execution_result.rows if idx < len(row) and row[idx] is not None and isinstance(row[idx], (int, float))]
             if not vals:
                 continue
-            col_sum = sum(vals)
-            col_avg = col_sum / len(vals)
+            
+            col_avg = sum(vals) / len(vals)
             col_min = min(vals)
             col_max = max(vals)
-            metrics.append(f"- {col}: SUM={col_sum:,.2f}, AVG={col_avg:,.2f}, MIN={col_min:,.2f}, MAX={col_max:,.2f}")
+            
+            col_lower = col.lower()
+            non_additive_keywords = ['total', 'cumulative', 'running', 'ytd', 'mtd', 'rate', 'percent', 'margin', 'ratio', 'avg', 'average', 'share']
+            
+            # If the column name implies it is already aggregated or represents a non-additive metric, DO NOT sum it.
+            if any(k in col_lower for k in non_additive_keywords):
+                metrics.append(f"- {col}: AVG={col_avg:,.2f}, MIN={col_min:,.2f}, MAX={col_max:,.2f} (Do NOT SUM this metric as it is non-additive)")
+            else:
+                col_sum = sum(vals)
+                metrics.append(f"- {col}: SUM={col_sum:,.2f}, AVG={col_avg:,.2f}, MIN={col_min:,.2f}, MAX={col_max:,.2f}")
 
     if metrics:
         lines.append("")
@@ -211,12 +220,10 @@ class BusinessInsightService:
         self,
         question: str,
         execution_result: SQLExecutionResponse,
-        visualization: VisualizationRecommendation,
+        visualizations: list[VisualizationRecommendation]
     ) -> BusinessInsightResponse:
         """
-        Generate business insights from the execution results.
-
-        If the data is empty, it bypasses the LLM and returns a static explanation.
+        Generate business insights (summaries, KPIs, key findings) using LLaMA/Groq.
         """
         request_id = f"insight-{int(time.time() * 1000)}"
         t_start = time.perf_counter()
@@ -247,12 +254,37 @@ class BusinessInsightService:
                 ],
                 conclusion="No data was returned for analysis."
             )
-
-        prompt = _build_insight_prompt(question, execution_result, visualization)
+        prompt = _build_insight_prompt(question, execution_result, visualizations)
 
         try:
-            result = await self.agent.run(prompt)
-            insight = result.output
+            raw_response = ""
+            for attempt in range(2):
+                try:
+                    result = await self.agent.run(prompt)
+                    raw_response = result.output
+                    
+                    import json
+                    # Clean markdown blocks
+                    cleaned = raw_response.strip()
+                    if cleaned.startswith("```json"):
+                        cleaned = cleaned[7:]
+                    elif cleaned.startswith("```"):
+                        cleaned = cleaned[3:]
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned[:-3]
+                        
+                    cleaned = cleaned.strip()
+                    cleaned = _repair_bullet_lists(cleaned)
+                    
+                    data = json.loads(cleaned)
+                    insight = BusinessInsightResponse(**data)
+                    break
+                except Exception as e:
+                    if attempt == 0:
+                        logger.warning("[%s] Insight parsing failed on attempt 1, retrying: %s", request_id, e)
+                        prompt += f"\n\nSystem Note: Your previous response was invalid JSON or failed schema validation. Error: {e}. Please return ONLY valid JSON matching the exact schema."
+                    else:
+                        raise
 
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t_start) * 1000

@@ -37,6 +37,7 @@ from app.config.settings import settings
 from app.schemas.database_schema import DatabaseSchemaResponse
 from app.schemas.sql import SQLGenerationResponse
 from app.schemas.agent import MessageTurn
+from app.schemas.intent import QueryPlan
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ _SYSTEM_PROMPT = (
     "6. Reference only tables and columns that appear in the provided schema.\n"
     "7. Always end the statement with a semicolon.\n"
     "8. ALWAYS use `AS` to explicitly alias aggregations and calculations with clean, readable names (e.g. `COUNT(id) AS customer_count`).\n"
+    "9. NEVER hallucinate columns. You may ONLY use columns present in the current dataset schema. If the user asks for a metric not available in the schema, do NOT invent it. You must alias derived metrics.\n"
 )
 
 
@@ -220,6 +222,7 @@ class SQLGeneratorService:
         self,
         question: str,
         schema: DatabaseSchemaResponse,
+        query_plan: QueryPlan | None = None,
         history: list[MessageTurn] | None = None,
     ) -> SQLGenerationResponse:
         """
@@ -263,6 +266,8 @@ class SQLGeneratorService:
             prompt_parts.append("")
             
         prompt_parts.append(f"Current Question: {question}")
+        if query_plan:
+            prompt_parts.append(f"Query Plan: {query_plan.model_dump_json()}")
         prompt_parts.append("Return only the SQL query. No explanation. No markdown.")
         
         user_prompt = "\n".join(prompt_parts)
@@ -444,6 +449,7 @@ class SQLGeneratorService:
         schema: DatabaseSchemaResponse,
         previous_sql: str,
         validation_error: SQLSchemaValidationError,
+        query_plan: QueryPlan | None = None,
     ) -> SQLGenerationResponse:
         """
         Generate a validated SQL query attempting to fix a previous schema error.
@@ -468,14 +474,21 @@ class SQLGeneratorService:
             for s in validation_error.suggestions[:20]: # Limit to 20 to avoid context bloat
                 feedback += f"- {s}\n"
         
-        user_prompt = (
-            f"Database Schema:\n{schema_text}\n\n"
-            f"Question: {question}\n\n"
-            f"Previous SQL:\n{previous_sql}\n\n"
-            f"{feedback}\n"
-            "Generate ONLY the corrected SQL. Do not invent tables or columns. "
+        user_prompt_parts = [
+            f"Database Schema:\n{schema_text}\n",
+            f"Question: {question}\n"
+        ]
+        if query_plan:
+            user_prompt_parts.append(f"Query Plan: {query_plan.model_dump_json()}\n")
+            
+        user_prompt_parts.extend([
+            f"Previous SQL:\n{previous_sql}\n",
+            f"{feedback}",
+            "Generate ONLY the corrected SQL. Do not invent tables or columns. ",
             "Return SQL only. No explanation. No markdown."
-        )
+        ])
+        
+        user_prompt = "\n".join(user_prompt_parts)
 
         try:
             result = await agent.run(user_prompt)

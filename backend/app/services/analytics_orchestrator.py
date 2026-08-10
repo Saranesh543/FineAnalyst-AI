@@ -11,12 +11,14 @@ import logging
 import time
 
 from app.schemas.analyze import AnalyzeResponse, WorkflowStep
+from app.schemas.sql import SQLGenerationResponse
 from app.schemas.insight import BusinessInsightResponse
-from app.schemas.intent import Intent
+from app.schemas.intent import QueryPlan, Intent
 from app.schemas.agent import MessageTurn
 from app.services.business_insight_service import business_insight_service
 from app.services.chart_intelligence_service import chart_intelligence_service
-from app.services.intent_router import intent_router
+from app.services.mermaid_generation_service import mermaid_generation_service
+from app.services.query_understanding_service import query_understanding_service
 from app.services.schema_service import schema_service
 from app.services.sql_executor_service import sql_executor_service
 from app.services.sql_generator_service import sql_generator_service
@@ -59,9 +61,49 @@ class AnalyticsOrchestratorService:
         
         steps: list[WorkflowStep] = []
         
-        context_injected_question = question
+        # -----------------------------------------------------------------------
+        # 0. Inline Data Extraction
+        # -----------------------------------------------------------------------
+        from app.services.inline_data_extractor import extract_inline_data
+        from sqlalchemy.ext.asyncio import create_async_engine
+        import asyncio
         
-        # Inject file attachments if session_id is provided
+        clean_question, inline_df, has_inline_data = extract_inline_data(question)
+        custom_engine = None
+        inline_columns = None
+        # Recover inline data from history if missing
+        if not has_inline_data and history:
+            for turn in reversed(history):
+                if turn.role.value == "user":
+                    _, prev_df, prev_has_inline = extract_inline_data(turn.content)
+                    if prev_has_inline:
+                        inline_df = prev_df
+                        has_inline_data = True
+                        logger.info("[%s] Recovered inline data from previous conversation history", request_id)
+                        break
+        
+        if has_inline_data and inline_df is not None:
+            logger.info("[%s] Inline data detected. Creating in-memory SQLite engine.", request_id)
+            logger.info(
+                "\n[Analytics] Data Source: user_inline_data\n"
+                "[Analytics] Inline Data Detected: true\n"
+                "[Analytics] Inline Rows: %d\n"
+                "[Analytics] Inline Columns: %s\n"
+                "[Analytics] Clean Question: %s\n"
+                "[Analytics] Database Fallback: false",
+                len(inline_df),
+                ", ".join(inline_df.columns),
+                clean_question
+            )
+            custom_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+            async with custom_engine.connect() as conn:
+                await conn.run_sync(lambda sync_conn: inline_df.to_sql('user_inline_data', sync_conn, index=False))
+            
+            # Do NOT overwrite question with clean_question so intent routing has full context
+            inline_columns = [str(c) for c in inline_df.columns]
+        
+        # Fetch file attachments if session_id is provided
+        attachments = []
         if session_id and user_id:
             try:
                 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,35 +122,87 @@ class AnalyticsOrchestratorService:
                     
                     if attachments:
                         logger.info("[%s] Resolved %d uploaded files for session_id=%s", request_id, len(attachments), session_id)
-                        file_context = "Context from uploaded files:\n"
-                        for att in attachments:
-                            logger.info("[%s] Including attachment: %s (type=%s, table=%s)", request_id, att.filename, att.file_type, att.table_name)
-                            if att.table_name:
-                                file_context += f"--- {att.filename} ---\nThis structured file was imported into the database table `{att.table_name}`. Query this table to answer questions about this file.\n\n"
-                            elif att.extracted_text:
-                                file_context += f"--- {att.filename} ---\n{att.extracted_text[:10000]}\n\n"
-                        
-                        context_injected_question = f"{file_context}\n\nUser Question:\n{question}"
-                        logger.info("[%s] Final injected context input:\n%s", request_id, context_injected_question[:500] + ("..." if len(context_injected_question) > 500 else ""))
             except Exception as e:
                 logger.error("Failed to fetch attachments for orchestrator context: %s", e)
 
         # -----------------------------------------------------------------------
-        # 1. Intent Classification
+        # 1. Query Understanding
         # -----------------------------------------------------------------------
         step_start = time.perf_counter()
+        
+        previous_query_plan = None
+        if history:
+            # Active Dataset Isolation: If a new inline dataset is provided, scrub old SQL and QueryPlans
+            # to prevent the AI from hallucinating columns from previous datasets.
+            if inline_columns:
+                import re
+                for turn in history:
+                    if turn.role.value == "assistant":
+                        turn.content = re.sub(r'\[Previous QueryPlan:.*?\]', '', turn.content, flags=re.DOTALL)
+                        turn.content = re.sub(r'\[Previous SQL Query Executed:.*?\]', '', turn.content, flags=re.DOTALL)
+                        turn.content = turn.content.strip()
+
+            import json
+            for turn in reversed(history):
+                if turn.role.value == "assistant" and "[Previous QueryPlan:" in turn.content:
+                    start_idx = turn.content.find("[Previous QueryPlan:")
+                    if start_idx != -1:
+                        json_str_part = turn.content[start_idx + len("[Previous QueryPlan:"):].strip()
+                        if json_str_part.endswith("]"):
+                            json_str_part = json_str_part[:-1].strip()
+                        else:
+                            last_bracket = json_str_part.rfind("]")
+                            if last_bracket != -1:
+                                json_str_part = json_str_part[:last_bracket].strip()
+                        try:
+                            previous_query_plan_data = json.loads(json_str_part)
+                            previous_query_plan = QueryPlan(**previous_query_plan_data)
+                            logger.info("[%s] Recovered previous QueryPlan from history", request_id)
+                            break
+                        except Exception as e:
+                            logger.warning("[%s] Failed to parse previous QueryPlan: %s", request_id, e)
+                            continue
+        
         try:
-            intent_result = await intent_router.classify(context_injected_question, history=history)
+            query_plan = await query_understanding_service.understand(
+                question, 
+                history=history, 
+                inline_columns=inline_columns,
+                previous_query_plan=previous_query_plan
+            )
             
             # Use corrected message internally if available, else original
-            internal_query = intent_result.corrected_message if intent_result.corrected_message else context_injected_question
+            internal_query = query_plan.corrected_message if query_plan.corrected_message else question
             
-            logger.info("[%s] Classified intent: %s | internal_query: %r", request_id, intent_result.intent, internal_query)
+            logger.info("[%s] QueryPlan intent: %s | internal_query: %r", request_id, query_plan.intent, internal_query)
+            logger.info("[%s] QueryPlan: %s", request_id, query_plan.model_dump_json())
             
-            if intent_result.intent in (Intent.CONVERSATION, Intent.KNOWLEDGE):
+            # Clarification Check
+            if query_plan.clarification_needed and query_plan.clarification_question:
+                logger.info("[%s] Clarification needed: %s", request_id, query_plan.clarification_question)
                 return AnalyzeResponse(
                     question=question,
-                    intent=intent_result.intent,
+                    intent=query_plan.intent,
+                    query_plan=query_plan.model_dump(mode="json"),
+                    clarification_question=query_plan.clarification_question,
+                    sql=None,
+                    execution=None,
+                    visualization=None,
+                    insight=None,
+                    steps=[WorkflowStep(
+                        name="intent_routing",
+                        status="done",
+                        detail=query_plan.model_dump_json(),
+                        duration_ms=(time.perf_counter() - step_start) * 1000
+                    )]
+                )
+            
+            if query_plan.intent in (Intent.CONVERSATION, Intent.KNOWLEDGE):
+                return AnalyzeResponse(
+                    question=question,
+                    intent=query_plan.intent,
+                    query_plan=query_plan.model_dump(mode="json"),
+                    clarification_question=query_plan.clarification_question,
                     sql=None,
                     execution=None,
                     visualization=None,
@@ -123,13 +217,14 @@ class AnalyticsOrchestratorService:
             steps.append(WorkflowStep(
                 name="intent_routing",
                 status="done",
+                detail=query_plan.model_dump_json(),
                 duration_ms=(time.perf_counter() - step_start) * 1000
             ))
                 
-            if intent_result.intent == Intent.SCHEMA:
+            if query_plan.intent == Intent.SCHEMA:
                 logger.info("[%s] Fetching schema for SCHEMA intent...", request_id)
                 step_start = time.perf_counter()
-                schema_response = await schema_service.get_schema(user_id=user_id)
+                schema_response = await schema_service.get_schema(user_id=user_id, session_id=session_id, custom_engine=custom_engine)
                 steps.append(WorkflowStep(
                     name="schema_discovery",
                     status="done",
@@ -174,7 +269,8 @@ class AnalyticsOrchestratorService:
                 
                 return AnalyzeResponse(
                     question=question,
-                    intent=intent_result.intent,
+                    intent=query_plan.intent,
+                    query_plan=query_plan.model_dump(mode="json"),
                     sql=None,
                     execution=None,
                     visualization=None,
@@ -183,8 +279,8 @@ class AnalyticsOrchestratorService:
                     steps=steps
                 )
         except Exception as exc:
-            logger.exception("[%s] Intent classification failed: %s", request_id, exc)
-            raise AnalyticsWorkflowError(f"Intent routing failed: {exc}", stage="intent_routing", original_error=exc, steps=steps) from exc
+            logger.exception("[%s] Query understanding failed: %s", request_id, exc)
+            raise AnalyticsWorkflowError(f"Query understanding failed: {exc}", stage="intent_routing", original_error=exc, steps=steps) from exc
 
         # -----------------------------------------------------------------------
         # 2. Schema Discovery
@@ -192,7 +288,7 @@ class AnalyticsOrchestratorService:
         step_start = time.perf_counter()
         try:
             logger.info("[%s] Discovering schema...", request_id)
-            schema_response = await schema_service.get_schema(user_id=user_id)
+            schema_response = await schema_service.get_schema(user_id=user_id, session_id=session_id, custom_engine=custom_engine)
             logger.info("[%s] Discovered %d tables", request_id, len(schema_response.tables))
             steps.append(WorkflowStep(
                 name="schema_discovery",
@@ -212,123 +308,120 @@ class AnalyticsOrchestratorService:
             raise AnalyticsWorkflowError(f"Schema discovery failed: {exc}", stage="schema", original_error=exc, steps=steps) from exc
 
         # -----------------------------------------------------------------------
-        # SQL Generation
+        # SQL Generation & Execution with 3-Attempt Retry Loop
         # -----------------------------------------------------------------------
         step_start = time.perf_counter()
-        try:
-            logger.info("[%s] Generating SQL...", request_id)
-            sql_response = await sql_generator_service.generate(internal_query, schema_response, history=history)
-            logger.info("[%s] SQL generated", request_id)
-            steps.append(WorkflowStep(
-                name="sql_generation",
-                status="done",
-                detail=sql_response.sql,
-                duration_ms=(time.perf_counter() - step_start) * 1000
-            ))
-        except SQLSchemaValidationError as exc:
-            logger.warning("[%s] Schema validation failed. Attempting retry...", request_id)
+        sql_response = None
+        execution_response = None
+        last_error = None
+        
+        att_file = attachments[0].filename if attachments else "None"
+        att_id = attachments[0].id if attachments else "None"
+        att_table = attachments[0].table_name if attachments else "None"
+        att_type = attachments[0].file_type if attachments else "None"
+        
+        if has_inline_data:
+            selected_table = "user_inline_data"
+        elif attachments:
+            selected_table = att_table
+        else:
+            selected_table = "application_db"
+            
+        logger.info(
+            "\n[Analytics] PreviousContext: %s\n"
+            "[Analytics] NewQuestion: %s\n"
+            "[Analytics] MergedQueryPlan: %s\n"
+            "[Analytics] SelectedTable: %s\n"
+            "[Analytics] Schema: %s",
+            "Found" if previous_query_plan else "None",
+            internal_query,
+            query_plan.model_dump_json(),
+            selected_table,
+            [t.name for t in schema_response.tables]
+        )
+
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
             try:
-                sql_response = await sql_generator_service.generate_retry(
-                    question=internal_query,
-                    schema=schema_response,
-                    previous_sql=getattr(exc, "sql", ""),
-                    validation_error=exc
-                )
-                logger.info("[%s] SQL generated successfully on retry", request_id)
+                logger.info("[%s] SQL Generation Attempt %d/%d...", request_id, attempt, max_attempts)
+                
+                if attempt == 1:
+                    sql_response = await sql_generator_service.generate(internal_query, schema_response, query_plan=query_plan, history=history)
+                else:
+                    logger.warning("[%s] Retrying SQL generation due to previous error...", request_id)
+                    from app.services.sql_validator_service import SQLSchemaValidationError
+                    
+                    if not isinstance(last_error, SQLSchemaValidationError):
+                        # Wrap generic execution errors in a schema validation error so the prompt works
+                        error_to_pass = SQLSchemaValidationError(
+                            message=str(last_error),
+                            type_="execution_error",
+                            suggestions=[]
+                        )
+                    else:
+                        error_to_pass = last_error
+
+                    sql_response = await sql_generator_service.generate_retry(
+                        question=internal_query,
+                        schema=schema_response,
+                        query_plan=query_plan,
+                        previous_sql=sql_response.sql if sql_response else getattr(last_error, "sql", ""),
+                        validation_error=error_to_pass
+                    )
+                    
+                logger.info("[Analytics] SQL: %s", sql_response.sql)
+                
+                logger.info("[%s] Executing SQL Attempt %d/%d...", request_id, attempt, max_attempts)
+                execution_response = await sql_executor_service.execute_sql(sql_response.sql, user_id=user_id, custom_engine=custom_engine, user_question=internal_query)
+                logger.info("[%s] Rows returned: %d", request_id, execution_response.row_count)
+                
+                # If execution succeeds, break out of the retry loop
                 steps.append(WorkflowStep(
                     name="sql_generation",
                     status="done",
                     detail=sql_response.sql,
                     duration_ms=(time.perf_counter() - step_start) * 1000
                 ))
-            except SQLSchemaValidationError as retry_exc:
-                # If retry ALSO fails schema validation, it's an impossible question.
-                logger.info("[%s] Impossible question detected via schema validation failure: %s", request_id, retry_exc)
                 steps.append(WorkflowStep(
-                    name="sql_generation",
-                    status="skipped",
-                    detail="Requested data does not exist in the database.",
+                    name="sql_execution",
+                    status="done",
                     duration_ms=(time.perf_counter() - step_start) * 1000
                 ))
-                steps.append(WorkflowStep(name="sql_execution", status="skipped"))
-                steps.append(WorkflowStep(name="visualization", status="skipped"))
+                break
                 
-                step_start = time.perf_counter()
-                try:
-                    insight = await business_insight_service.generate_impossible_insight(
-                        question=internal_query,
-                        schema=schema_response
-                    )
+            except Exception as exc:
+                last_error = exc
+                if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
+                    logger.exception("[%s] Rate limit exceeded during SQL loop: %s", request_id, exc)
+                    raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc, steps=steps) from exc
+                
+                logger.error("[%s] SQL generation or execution failed on attempt %d: %s", request_id, attempt, str(exc))
+                
+                if attempt == max_attempts:
                     steps.append(WorkflowStep(
-                        name="insight_generation",
-                        status="done",
-                        duration_ms=(time.perf_counter() - step_start) * 1000
-                    ))
-                except Exception as insight_exc:
-                    steps.append(WorkflowStep(
-                        name="insight_generation",
+                        name="sql_generation_execution",
                         status="error",
-                        detail=str(insight_exc)
+                        detail=str(exc)
                     ))
-                    raise AnalyticsWorkflowError(f"Insight generation failed for impossible query: {insight_exc}", stage="insight", original_error=insight_exc, steps=steps) from insight_exc
-                
-                return AnalyzeResponse(
-                    question=question,
-                    intent=intent_result.intent,
-                    sql=None,
-                    execution=None,
-                    visualization=None,
-                    insight=insight,
-                    confidence_score="Low",
-                    steps=steps
-                )
-            except Exception as retry_exc:
-                steps.append(WorkflowStep(
-                    name="sql_generation",
-                    status="error",
-                    detail=str(retry_exc)
-                ))
-                if isinstance(retry_exc, ModelHTTPError) and (retry_exc.status_code == 429 or "rate_limit_exceeded" in str(retry_exc).lower()):
-                    logger.exception("[%s] Workflow failed at SQL generation retry due to rate limit: %s", request_id, retry_exc)
-                    raise AnalyticsWorkflowError(f"Rate limit exceeded: {retry_exc}", stage="rate_limited", original_error=retry_exc, steps=steps) from retry_exc
-                logger.exception("[%s] Workflow failed at SQL generation retry: %s | Type: %s", request_id, retry_exc, type(retry_exc).__name__)
-                raise AnalyticsWorkflowError(f"SQL generation failed on retry: {retry_exc}", stage="sql_generation", original_error=retry_exc, steps=steps) from retry_exc
-        except Exception as exc:
-            steps.append(WorkflowStep(
-                name="sql_generation",
-                status="error",
-                detail=str(exc)
-            ))
-            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
-                logger.exception("[%s] Workflow failed at SQL generation due to rate limit: %s", request_id, exc)
-                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc, steps=steps) from exc
-            logger.exception("[%s] Workflow failed at SQL generation: %s | Type: %s", request_id, exc, type(exc).__name__)
-            raise AnalyticsWorkflowError(f"SQL generation failed: {exc}", stage="sql_generation", original_error=exc, steps=steps) from exc
-
-        # -----------------------------------------------------------------------
-        # 3. SQL Execution
-        # -----------------------------------------------------------------------
-        step_start = time.perf_counter()
-        try:
-            logger.info("[%s] Executing SQL...", request_id)
-            execution_response = await sql_executor_service.execute_sql(sql_response.sql, user_id=user_id, user_question=internal_query)
-            logger.info("[%s] Rows returned: %d", request_id, execution_response.row_count)
-            steps.append(WorkflowStep(
-                name="sql_execution",
-                status="done",
-                duration_ms=(time.perf_counter() - step_start) * 1000
-            ))
-        except Exception as exc:
-            steps.append(WorkflowStep(
-                name="sql_execution",
-                status="error",
-                detail=str(exc)
-            ))
-            if isinstance(exc, ModelHTTPError) and (exc.status_code == 429 or "rate_limit_exceeded" in str(exc).lower()):
-                logger.exception("[%s] Workflow failed at SQL execution due to rate limit: %s", request_id, exc)
-                raise AnalyticsWorkflowError(f"Rate limit exceeded: {exc}", stage="rate_limited", original_error=exc, steps=steps) from exc
-            logger.exception("[%s] Workflow failed at SQL execution: %s | Type: %s", request_id, exc, type(exc).__name__)
-            raise AnalyticsWorkflowError(f"SQL execution failed: {exc}", stage="sql_execution", original_error=exc, steps=steps) from exc
+                    logger.exception("[%s] All %d attempts failed. Last error: %s", request_id, max_attempts, exc)
+                    
+                    # -----------------------------------------------------------
+                    # DETERMINISTIC FALLBACK
+                    # -----------------------------------------------------------
+                    logger.info("[%s] Triggering deterministic fallback.", request_id)
+                    fallback_sql = f"SELECT * FROM {selected_table} LIMIT 100;"
+                    try:
+                        execution_response = await sql_executor_service.execute_sql(fallback_sql, user_id=user_id, custom_engine=custom_engine, user_question=internal_query)
+                        sql_response = SQLGenerationResponse(sql=fallback_sql, question=internal_query, dialect=schema_response.dialect)
+                        steps.append(WorkflowStep(
+                            name="sql_generation",
+                            status="done",
+                            detail=fallback_sql,
+                            duration_ms=(time.perf_counter() - step_start) * 1000
+                        ))
+                        break # Successfully recovered via fallback
+                    except Exception as fallback_exc:
+                        raise AnalyticsWorkflowError(f"SQL generation/execution and fallback failed: {exc}. Fallback error: {fallback_exc}", stage="sql_execution", original_error=exc, steps=steps) from exc
 
         # -----------------------------------------------------------------------
         # 4. Visualization Recommendation
@@ -336,13 +429,30 @@ class AnalyticsOrchestratorService:
         step_start = time.perf_counter()
         try:
             logger.info("[%s] Recommending visualization...", request_id)
-            vis_response = chart_intelligence_service.select_chart(
-                question=internal_query, execution_result=execution_response
+            vis_responses = chart_intelligence_service.select_charts(
+                question=internal_query, execution_result=execution_response, query_plan=query_plan
             )
-            logger.info("[%s] Visualization recommended: %s | confidence: %s | reason: %s | row_count: %s", 
-                        request_id, vis_response.chart, vis_response.confidence, vis_response.reason, execution_response.row_count)
-            if vis_response.metadata:
-                logger.info("[%s] Metadata: title='%s', subtitle='%s'", request_id, vis_response.metadata.title, vis_response.metadata.subtitle)
+            logger.info("[%s] %d visualizations recommended", request_id, len(vis_responses))
+            
+            # Post-process mermaid generation
+            for v in vis_responses:
+                if v.chart == "mermaid":
+                    try:
+                        logger.info("[%s] Generating Mermaid syntax for chart", request_id)
+                        mermaid_code = await mermaid_generation_service.generate_mermaid(
+                            question=internal_query,
+                            execution_result=execution_response
+                        )
+                        if v.metadata:
+                            v.metadata.mermaid_code = mermaid_code
+                    except Exception as e:
+                        logger.warning("[%s] Failed to generate mermaid: %s", request_id, e)
+                        v.chart = "data_grid"
+                        if v.metadata:
+                            v.metadata.chart_type = "data_grid"
+            
+            for v in vis_responses:
+                logger.info("[%s] Chart: %s | Title: %s", request_id, v.chart, getattr(v.metadata, 'title', None))
             steps.append(WorkflowStep(
                 name="visualization",
                 status="done",
@@ -369,7 +479,7 @@ class AnalyticsOrchestratorService:
             insight_response = await business_insight_service.generate_insight(
                 question=internal_query,
                 execution_result=execution_response,
-                visualization=vis_response,
+                visualizations=vis_responses,
             )
             logger.info("[%s] Finished", request_id)
             steps.append(WorkflowStep(
@@ -400,7 +510,7 @@ class AnalyticsOrchestratorService:
         )
 
         # Calculate dynamic confidence score
-        base_confidence = vis_response.confidence if vis_response else 0.8
+        base_confidence = (sum(v.confidence for v in vis_responses) / len(vis_responses)) if vis_responses else 0.8
         
         # Penalize confidence if insight generation fell back to the error object
         if insight_response and insight_response.key_findings == ["AI analysis is temporarily unavailable."]:
@@ -419,13 +529,14 @@ class AnalyticsOrchestratorService:
 
         return AnalyzeResponse(
             question=question,
-            intent=Intent.DATABASE.value,
+            intent=query_plan.intent,
+            query_plan=query_plan.model_dump(mode="json"),
             sql=sql_response.sql,
             execution=execution_response,
-            visualization=vis_response,
+            visualizations=vis_responses,
             insight=insight_response,
-            chart_metadata=vis_response.metadata.model_dump() if vis_response and vis_response.metadata else None,
-            visualization_confidence=vis_response.confidence,
+            chart_metadata=[v.metadata.model_dump() for v in vis_responses if v.metadata],
+            visualization_confidence=vis_responses[0].confidence if vis_responses else 0.0,
             confidence_score=confidence_score,
             steps=steps
         )

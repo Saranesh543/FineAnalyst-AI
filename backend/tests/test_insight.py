@@ -61,7 +61,7 @@ class TestBusinessInsightPromptBuilder:
         from app.services.business_insight_service import _build_insight_prompt
         
         exec_res = _make_exec_response(["id", "val"], [[1, 100], [2, 200]])
-        vis_res = _make_vis_recommendation()
+        vis_res = [_make_vis_recommendation()]
         
         prompt = _build_insight_prompt("Show sales", exec_res, vis_res)
         assert "Show sales" in prompt
@@ -75,27 +75,27 @@ class TestBusinessInsightPromptBuilder:
         
         rows = [[i] for i in range(1000)]
         exec_res = _make_exec_response(["id"], rows)
-        vis_res = _make_vis_recommendation()
+        vis_res = [_make_vis_recommendation()]
         
         prompt = _build_insight_prompt("Big data", exec_res, vis_res)
-        assert "Showing first 500" in prompt
-        # Ensure only 500 rows are rendered
-        assert prompt.count("[") <= 501  # +1 for columns bracket if any
+        assert "Showing first 10" in prompt
+        # Ensure only 10 rows are rendered
+        assert prompt.count("[") <= 13  # +1 for columns bracket if any
 
     def test_build_prompt_empty_rows(self):
         from app.services.business_insight_service import _build_insight_prompt
         
         exec_res = _make_exec_response(["id"], [])
-        vis_res = _make_vis_recommendation()
+        vis_res = [_make_vis_recommendation()]
         
         prompt = _build_insight_prompt("Empty", exec_res, vis_res)
-        assert "Rows Returned: 0" in prompt
+        assert "Total Rows: 0" in prompt
 
     def test_build_prompt_includes_visualization(self):
         from app.services.business_insight_service import _build_insight_prompt
         exec_res = _make_exec_response(["id"], [[1]])
-        vis_res = _make_vis_recommendation()
-        vis_res.chart = "pie"
+        vis_res = [_make_vis_recommendation()]
+        vis_res[0].chart = "pie"
         
         prompt = _build_insight_prompt("Pie chart?", exec_res, vis_res)
         assert "pie" in prompt
@@ -110,14 +110,14 @@ class TestBusinessInsightService:
     @patch("app.services.business_insight_service._get_insight_agent")
     async def test_generate_insight_success(self, mock_get_agent):
         mock_agent = AsyncMock()
-        mock_agent.run.return_value.output = _make_mock_insight()
+        mock_agent.run.return_value.output = _make_mock_insight().model_dump_json()
         mock_get_agent.return_value = mock_agent
 
         from app.services.business_insight_service import BusinessInsightService
         service = BusinessInsightService()
         
         exec_res = _make_exec_response(["id"], [[1]])
-        vis_res = _make_vis_recommendation()
+        vis_res = [_make_vis_recommendation()]
         
         res = await service.generate_insight("Q", exec_res, vis_res)
         assert res.summary == "Sales are growing."
@@ -132,7 +132,7 @@ class TestBusinessInsightService:
         service._agent = AsyncMock() # Should not be called
         
         exec_res = _make_exec_response(["id"], []) # Empty
-        vis_res = _make_vis_recommendation()
+        vis_res = [_make_vis_recommendation()]
         
         res = await service.generate_insight("Q", exec_res, vis_res)
         assert "no data" in res.summary.lower()
@@ -142,14 +142,14 @@ class TestBusinessInsightService:
     @patch("app.services.business_insight_service._get_insight_agent")
     async def test_generate_insight_single_row(self, mock_get_agent):
         mock_agent = AsyncMock()
-        mock_agent.run.return_value.output = _make_mock_insight()
+        mock_agent.run.return_value.output = _make_mock_insight().model_dump_json()
         mock_get_agent.return_value = mock_agent
 
         from app.services.business_insight_service import BusinessInsightService
         service = BusinessInsightService()
         
         exec_res = _make_exec_response(["total"], [[1000]])
-        vis_res = _make_vis_recommendation()
+        vis_res = [_make_vis_recommendation()]
         
         res = await service.generate_insight("Total?", exec_res, vis_res)
         assert res.summary == "Sales are growing."
@@ -157,14 +157,14 @@ class TestBusinessInsightService:
     @patch("app.services.business_insight_service._get_insight_agent")
     async def test_generate_insight_multiple_rows(self, mock_get_agent):
         mock_agent = AsyncMock()
-        mock_agent.run.return_value.output = _make_mock_insight()
+        mock_agent.run.return_value.output = _make_mock_insight().model_dump_json()
         mock_get_agent.return_value = mock_agent
 
         from app.services.business_insight_service import BusinessInsightService
         service = BusinessInsightService()
         
         exec_res = _make_exec_response(["a"], [[1], [2], [3]])
-        vis_res = _make_vis_recommendation()
+        vis_res = [_make_vis_recommendation()]
         
         res = await service.generate_insight("Trend?", exec_res, vis_res)
         assert len(res.key_findings) > 0
@@ -179,7 +179,7 @@ class TestBusinessInsightService:
         service = BusinessInsightService()
         
         exec_res = _make_exec_response(["a"], [[1]])
-        vis_res = _make_vis_recommendation()
+        vis_res = [_make_vis_recommendation()]
         
         res = await service.generate_insight("question", exec_res, vis_res)
         assert res.key_findings == ["AI analysis is temporarily unavailable."]
@@ -210,13 +210,13 @@ class TestBusinessInsightService:
         mock_agent.run.return_value.output = BusinessInsightResponse(
             summary="Trend is going up.",
             key_findings=[], anomalies=[], recommendations=[]
-        )
+        ).model_dump_json()
         mock_get_agent.return_value = mock_agent
 
         from app.services.business_insight_service import BusinessInsightService
         service = BusinessInsightService()
         exec_res = _make_exec_response(["a"], [[1]])
-        res = await service.generate_insight("Trend?", exec_res, _make_vis_recommendation())
+        res = await service.generate_insight("Trend?", exec_res, [_make_vis_recommendation()])
         assert "Trend" in res.summary
 
     @patch("app.services.business_insight_service._get_insight_agent")
@@ -225,13 +225,13 @@ class TestBusinessInsightService:
         mock_agent.run.return_value.output = BusinessInsightResponse(
             summary="x", key_findings=[], anomalies=[],
             recommendations=["Check this out.", "Look closer."]
-        )
+        ).model_dump_json()
         mock_get_agent.return_value = mock_agent
 
         from app.services.business_insight_service import BusinessInsightService
         service = BusinessInsightService()
         exec_res = _make_exec_response(["a"], [[1]])
-        res = await service.generate_insight("Q", exec_res, _make_vis_recommendation())
+        res = await service.generate_insight("Q", exec_res, [_make_vis_recommendation()])
         assert len(res.recommendations) == 2
 
     @patch("app.services.business_insight_service._get_insight_agent")
@@ -240,13 +240,13 @@ class TestBusinessInsightService:
         mock_agent.run.return_value.output = BusinessInsightResponse(
             summary="x", key_findings=[],
             anomalies=["Spike on Jan 5th."], recommendations=[]
-        )
+        ).model_dump_json()
         mock_get_agent.return_value = mock_agent
 
         from app.services.business_insight_service import BusinessInsightService
         service = BusinessInsightService()
         exec_res = _make_exec_response(["a"], [[1]])
-        res = await service.generate_insight("Q", exec_res, _make_vis_recommendation())
+        res = await service.generate_insight("Q", exec_res, [_make_vis_recommendation()])
         assert len(res.anomalies) == 1
 
 
@@ -264,11 +264,11 @@ def valid_insight_payload():
             "row_count": 1,
             "execution_time_ms": 1.0
         },
-        "visualization": {
+        "visualizations": [{
             "chart": "table",
             "confidence": 1.0,
             "reason": "fallback"
-        }
+        }]
     }
 
 
@@ -359,11 +359,11 @@ async def test_api_insight_empty_result_success():
             "row_count": 0,
             "execution_time_ms": 1.0
         },
-        "visualization": {
+        "visualizations": [{
             "chart": "table",
             "confidence": 1.0,
             "reason": "fallback"
-        }
+        }]
     }
     
     async with AsyncClient(
@@ -403,11 +403,11 @@ def test_insight_request_schema():
     req = BusinessInsightRequest(
         question="sales",
         execution_result=_make_exec_response(["a"], [[1]]),
-        visualization=_make_vis_recommendation()
+        visualizations=[_make_vis_recommendation()]
     )
     assert req.question == "sales"
     assert req.execution_result.row_count == 1
-    assert req.visualization.chart == "line"
+    assert req.visualizations[0].chart == "line"
 
 def test_insight_request_invalid():
     from app.schemas.insight import BusinessInsightRequest
@@ -417,7 +417,7 @@ def test_insight_request_invalid():
         BusinessInsightRequest(
             question="a",  # too short
             execution_result=_make_exec_response(["a"], [[1]]),
-            visualization=_make_vis_recommendation()
+            visualizations=[_make_vis_recommendation()]
         )
 
 def test_insight_response_schema():
@@ -460,12 +460,12 @@ def test_insight_request_serialization():
     req = BusinessInsightRequest(
         question="sales",
         execution_result=_make_exec_response(["a"], [[1]]),
-        visualization=_make_vis_recommendation()
+        visualizations=[_make_vis_recommendation()]
     )
     data = req.model_dump(mode="json")
     assert data["question"] == "sales"
     assert data["execution_result"]["row_count"] == 1
-    assert data["visualization"]["chart"] == "line"
+    assert data["visualizations"][0]["chart"] == "line"
 
 def test_insight_response_serialization():
     from app.schemas.insight import BusinessInsightResponse
@@ -501,13 +501,13 @@ def test_insight_request_from_json():
             "row_count": 1,
             "execution_time_ms": 1.0
         },
-        "visualization": {
+        "visualizations": [{
             "chart": "line",
             "confidence": 1.0,
             "reason": "test",
             "x_axis": None,
             "y_axis": None
-        }
+        }]
     }
     req = BusinessInsightRequest.model_validate(data)
     assert req.question == "test"

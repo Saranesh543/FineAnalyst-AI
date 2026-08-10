@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { formatNumber, formatTick, CustomTooltip, ChartDefs, COLORS } from './chart-utils';
 import { EvidenceArtifact } from '@/lib/types/chat';
 
-export function LineChartWidget({ artifact, xKey, yKey }: { artifact: EvidenceArtifact, xKey: string, yKey: string }) {
+export function LineChartWidget({ artifact, xKey, yKeys }: { artifact: EvidenceArtifact, xKey: string, yKeys: string[] }) {
   const [hiddenSeries, setHiddenSeries] = useState<Record<string, boolean>>({});
   
   const toggleSeries = (dataKey: string) => {
@@ -23,9 +23,23 @@ export function LineChartWidget({ artifact, xKey, yKey }: { artifact: EvidenceAr
         <YAxis tickFormatter={(val) => formatNumber(val, format)} stroke="rgba(255,255,255,0.2)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }} />
         <Tooltip content={<CustomTooltip formatType={format} />} />
         <Legend onClick={(e: any) => toggleSeries(String(e.dataKey))} wrapperStyle={{ paddingTop: '20px', cursor: 'pointer', fontSize: '12px', color: 'rgba(255,255,255,0.7)' }} />
-        {!hiddenSeries[yKey] && (
-          <Line type="monotone" dataKey={yKey} name={artifact.metadata?.y_label || yKey} stroke={COLORS[0]} strokeWidth={4} activeDot={{ r: 8, fill: COLORS[0], stroke: '#000', strokeWidth: 2 }} filter="url(#cyanGlow)" animationDuration={700} animationEasing="ease-out" />
-        )}
+        
+        {yKeys.map((key, idx) => (
+          !hiddenSeries[key] && (
+            <Line 
+              key={key} 
+              type="monotone" 
+              dataKey={key} 
+              name={yKeys.length === 1 && artifact.metadata?.y_label ? artifact.metadata.y_label : key} 
+              stroke={COLORS[idx % COLORS.length]} 
+              strokeWidth={4} 
+              activeDot={{ r: 8, fill: COLORS[idx % COLORS.length], stroke: '#000', strokeWidth: 2 }} 
+              filter="url(#cyanGlow)" 
+              animationDuration={700} 
+              animationEasing="ease-out" 
+            />
+          )
+        ))}
         {showBrush && <Brush dataKey={xKey} height={30} stroke="#8884d8" />}
       </LineChart>
     </ResponsiveContainer>

@@ -38,6 +38,8 @@ export function RegisterForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
+    
     if (password !== confirmPassword) {
       toast.error("Passwords do not match");
       return;
@@ -49,12 +51,18 @@ export function RegisterForm() {
       toast.success("Account created successfully!");
       router.push("/");
     } catch (err: any) {
-      if (err.status === 409) {
-        toast.error("An account with this email already exists. Please sign in instead.");
-      } else if (!err.status) {
-        toast.error("Network error. Please try again later.");
+      const msg = (err.message || "").toLowerCase();
+      const isConflict = err.status === 409 || msg.includes("already exists");
+      const isRateLimited = err.status === 429 || msg.includes("too many");
+
+      if (isConflict) {
+        toast.error("An account with this email already exists. Please sign in.");
+      } else if (isRateLimited) {
+        toast.error("Too many attempts. Please wait a moment and try again.");
+      } else if (!err.status && !err.message) {
+        toast.error("Network error. Please check your connection.");
       } else {
-        toast.error(err.message || "Failed to register. Please try again.");
+        toast.error(err.message || "Failed to register.");
       }
     } finally {
       setIsLoading(false);

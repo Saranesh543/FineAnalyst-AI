@@ -376,12 +376,34 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
     try {
       const currentSession = get().sessions[activeSessionId!];
       const previousTurns = currentSession.messages.filter(m => m.id !== userTurn.id && m.id !== assistantTurnId);
-      const recentTurns = previousTurns.slice(-20);
+      
+      const cleanTurns = previousTurns.filter((turn, i, arr) => {
+        if (turn.role === 'assistant') {
+          return turn.status !== 'error';
+        }
+        if (turn.role === 'user') {
+          const nextTurn = arr[i + 1];
+          if (nextTurn && nextTurn.role === 'assistant' && nextTurn.status === 'error') {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      const recentTurns = cleanTurns.slice(-20);
       const history = recentTurns.map(m => {
         let content = m.role === 'user' ? (m.userText || "") : (m.answerText || "Analysis complete.");
-        if (m.role === 'assistant' && m.evidence && m.evidence.length > 0) {
-          const ev = m.evidence[0];
-          if (ev.sql) content += `\n\n[Previous SQL Query Executed: ${ev.sql}]`;
+        if (m.role === 'assistant') {
+          if (m.status === 'complete') {
+            if (m.evidence && m.evidence.length > 0) {
+            const ev = m.evidence[0];
+            if (ev.sql) content += `\n\n[Previous SQL Query Executed: ${ev.sql}]`;
+            }
+          }
+          if (m.queryPlan) {
+            let qpString = typeof m.queryPlan === 'string' ? m.queryPlan : JSON.stringify(m.queryPlan);
+            content += `\n\n[Previous QueryPlan: ${qpString}]`;
+          }
         }
         return { role: m.role, content };
       });
@@ -413,34 +435,76 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       }));
 
       const evidence: EvidenceArtifact[] = [];
-      if (analyzeRes.execution && analyzeRes.visualization) {
-        const artifactChartType = analyzeRes.visualization.chart;
-        const artifactTitle = analyzeRes.visualization.metadata?.title || 'Result Data';
-        const artifactMetadata = analyzeRes.visualization.metadata;
+      if (analyzeRes.execution && (analyzeRes.visualizations || analyzeRes.visualization)) {
+        const visualizations = analyzeRes.visualizations || [analyzeRes.visualization];
         
-        evidence.push({
-          id: uuidv4(),
-          kind: 'chart',
-          chartType: artifactChartType as any,
-          data: [],
-          sql: analyzeRes.sql,
-          rowCountTotal: analyzeRes.execution.row_count,
-          rowSample: [],
-          title: artifactTitle,
-          insights: analyzeRes.insight,
-          confidenceScore: analyzeRes.confidence_score,
-          metadata: artifactMetadata
-        });
-      }
+        let commonData: any[] = [];
+        let commonRowSample: any[] = [];
+        
+        if (Array.isArray(analyzeRes.execution.rows)) {
+          const columns = analyzeRes.execution.columns || [];
+          commonData = analyzeRes.execution.rows.map(row => {
+            const obj: Record<string, any> = {};
+            columns.forEach((col, i) => obj[col] = row[i]);
+            return obj;
+          });
+          commonRowSample = commonData.slice(0, 5);
+        }
 
-      if (evidence.length > 0 && Array.isArray(analyzeRes.execution.rows)) {
-        const columns = analyzeRes.execution.columns || [];
-        evidence[0].data = analyzeRes.execution.rows.map(row => {
-          const obj: Record<string, any> = {};
-          columns.forEach((col, i) => obj[col] = row[i]);
-          return obj;
-        });
-        evidence[0].rowSample = evidence[0].data.slice(0, 5);
+        for (const vis of visualizations) {
+          if (!vis) continue;
+          
+          const artifactChartType = vis.chart;
+          const artifactTitle = vis.metadata?.title || 'Result Data';
+          const artifactMetadata = vis.metadata;
+          
+          let validKeys: Set<string> | undefined;
+          
+          let chartData = commonData;
+          if (vis.x_axis || vis.y_axis) {
+            const yKeys = vis.y_axis ? vis.y_axis.split(',').map((s: string) => s.trim()) : [];
+            const xKey = vis.x_axis;
+            validKeys = new Set([...yKeys]);
+            if (xKey) validKeys.add(xKey);
+            
+            if (validKeys.size > 0 && artifactChartType !== 'data_grid') {
+               chartData = commonData.map(row => {
+                 const filtered: Record<string, any> = {};
+                 for (const k of validKeys!) {
+                   if (k in row) filtered[k] = row[k];
+                 }
+                 return filtered;
+               });
+            }
+          }
+
+          let filteredInsights = analyzeRes.insight;
+          if (analyzeRes.insight && validKeys && validKeys.size > 0 && artifactChartType !== 'data_grid') {
+            const validKeysArr = Array.from(validKeys);
+            const filteredKpis = (analyzeRes.insight.kpi_cards || []).filter(kpi => {
+              const labelLower = kpi.label.toLowerCase();
+              return validKeysArr.some(k => {
+                const normalizedKey = k.toLowerCase().replace(/_/g, ' ');
+                return labelLower.includes(normalizedKey) || normalizedKey.includes(labelLower);
+              });
+            });
+            filteredInsights = { ...analyzeRes.insight, kpi_cards: filteredKpis };
+          }
+
+          evidence.push({
+            id: uuidv4(),
+            kind: 'chart',
+            chartType: artifactChartType as any,
+            data: chartData,
+            sql: analyzeRes.sql,
+            rowCountTotal: analyzeRes.execution.row_count,
+            rowSample: commonRowSample,
+            title: artifactTitle,
+            insights: filteredInsights,
+            confidenceScore: String(vis.confidence || analyzeRes.confidence_score || ''),
+            metadata: artifactMetadata
+          });
+        }
       }
 
       let answerText = chatRes?.message || '';
@@ -460,6 +524,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         status: 'complete',
         answerText,
         evidence,
+        queryPlan: analyzeRes.query_plan,
         followUpSuggestions: isDbIntent ? (analyzeRes.insight?.suggested_questions || analyzeRes.insight?.recommendations || []) : []
       }));
 

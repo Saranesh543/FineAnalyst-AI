@@ -67,7 +67,7 @@ async def generate_insight(payload: BusinessInsightRequest) -> JSONResponse:
         response = await business_insight_service.generate_insight(
             question=payload.question,
             execution_result=payload.execution_result,
-            visualization=payload.visualization,
+            visualizations=payload.visualizations,
         )
         return JSONResponse(
             status_code=status.HTTP_200_OK,

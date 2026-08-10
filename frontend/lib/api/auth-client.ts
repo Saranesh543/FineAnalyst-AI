@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const _rawUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const _cleanBase = _rawUrl.replace(/\/+$/, '');
+const API_BASE = _cleanBase.endsWith('/api/v1') ? _cleanBase : `${_cleanBase}/api/v1`;
 
 export interface AuthUser {
   id: number;
@@ -27,7 +29,7 @@ class AuthClient {
     if (!email || !password) {
       throw new Error("Email and password are required");
     }
-    const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+    const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, remember_me }),
@@ -41,7 +43,7 @@ class AuthClient {
     if (!name || !email || !password) {
       throw new Error("All fields are required");
     }
-    const res = await fetch(`${API_BASE}/api/v1/auth/register`, {
+    const res = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ full_name: name, email, password }),
@@ -53,7 +55,7 @@ class AuthClient {
 
   async forgotPassword(email: string): Promise<{ message: string }> {
     if (!email) throw new Error("Email is required");
-    const res = await fetch(`${API_BASE}/api/v1/auth/forgot-password`, {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -65,7 +67,7 @@ class AuthClient {
 
   async resetPassword(token: string, new_password: string): Promise<{ message: string }> {
     if (!token || !new_password) throw new Error("Token and password are required");
-    const res = await fetch(`${API_BASE}/api/v1/auth/reset-password`, {
+    const res = await fetch(`${API_BASE}/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, new_password }),
@@ -76,7 +78,7 @@ class AuthClient {
   }
 
   async refreshToken(refresh_token: string): Promise<AuthResponse> {
-    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token }),

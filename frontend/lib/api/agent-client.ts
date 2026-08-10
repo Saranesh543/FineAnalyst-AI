@@ -33,6 +33,7 @@ export interface KPICard {
 export interface AnalyzeResponse {
   question: string;
   intent?: string;
+  query_plan?: any;
   sql: string;
   execution: {
     columns: string[];
@@ -40,10 +41,12 @@ export interface AnalyzeResponse {
     row_count: number;
     execution_time_ms: number;
   };
-  visualization: {
+  visualization?: {
     chart: string;
     confidence?: number;
     reason?: string;
+    x_axis?: string;
+    y_axis?: string;
     metadata: {
       chart_type: string;
       title: string;
@@ -51,6 +54,19 @@ export interface AnalyzeResponse {
       description?: string;
     };
   };
+  visualizations?: {
+    chart: string;
+    confidence?: number;
+    reason?: string;
+    x_axis?: string;
+    y_axis?: string;
+    metadata: {
+      chart_type: string;
+      title: string;
+      encoding: Record<string, any>;
+      description?: string;
+    };
+  }[];
   insight: {
     summary: string;
     kpi_cards: KPICard[];

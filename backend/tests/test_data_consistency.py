@@ -1,54 +1,45 @@
 import pytest
-from app.services.business_insight_service import BusinessInsightService
+import asyncio
+from unittest.mock import MagicMock
+from app.services.business_insight_service import _build_insight_prompt
+from app.services.chart_intelligence_service import ChartIntelligenceService
 from app.schemas.execution import SQLExecutionResponse
-from app.schemas.visualization import VisualizationRecommendation
+from app.schemas.visualization import VisualizationRecommendation, VisualizationMetadata
 
-@pytest.mark.asyncio
-async def test_insight_generator_strict_data_grounding():
+def test_business_insight_duplicate_aggregation_prevention():
     """
-    Test that the insight generator strictly adheres to the provided dataset
-    and does not hallucinate other entities.
+    Test that business_insight_service does NOT sum non-additive columns 
+    like 'Total_Revenue' or 'Profit_Margin'.
     """
-    service = BusinessInsightService()
+    # 3 rows of data
+    rows = [
+        ["Jan", 100, 1000, 0.1],
+        ["Feb", 200, 1200, 0.2],
+        ["Mar", 300, 1500, 0.15]
+    ]
+    columns = ["Month", "Revenue", "Total_Revenue", "Profit_Margin"]
     
-    # Mock an execution response with highly specific fictitious data
-    # so we can easily detect if the LLM hallucinates generic tech companies.
-    mock_execution = SQLExecutionResponse(
-        sql="SELECT company_name, revenue FROM customers ORDER BY revenue DESC LIMIT 2",
-        columns=["company_name", "revenue"],
-        rows=[
-            ["Xylophone Enterprises", 998877],
-            ["Zebra Logistics", 112233]
-        ],
-        row_count=2,
+    execution = SQLExecutionResponse(
+        columns=columns,
+        rows=rows,
+        row_count=3,
         execution_time_ms=10.0
     )
     
-    mock_vis = VisualizationRecommendation(
-        chart="Bar Chart",
-        reason="Comparing revenue across companies.",
-        confidence=0.95
+    vis = VisualizationRecommendation(
+        chart="line",
+        confidence=0.9,
+        reason="Test",
+        metadata=VisualizationMetadata(chart_type="line", title="Test")
     )
     
-    question = "Top 2 companies by revenue"
+    prompt = _build_insight_prompt("Test question", execution, [vis])
     
-    insight = await service.generate_insight(
-        question=question,
-        execution_result=mock_execution,
-        visualization=mock_vis
-    )
+    assert "SUM=600.00" in prompt, "Additive column 'Revenue' should be summed"
+    assert "Do NOT SUM this metric as it is non-additive" in prompt, "Non-additive metrics must contain the warning"
     
-    summary_lower = insight.summary.lower()
-    findings_lower = " ".join(insight.key_findings).lower()
-    
-    full_text = summary_lower + " " + findings_lower
-    
-    # Assert that the exact fictitious names appear in the LLM's response
-    assert "xylophone enterprises" in full_text, f"Expected 'Xylophone Enterprises' in output, got: {insight.model_dump_json()}"
-    assert "zebra logistics" in full_text, f"Expected 'Zebra Logistics' in output, got: {insight.model_dump_json()}"
-    assert "998877" in full_text or "998,877" in full_text or "998.88" in full_text or "998k" in full_text or "112233" in full_text, f"Expected numeric values in output, got: {insight.model_dump_json()}"
-    
-    # Assert that it did NOT hallucinate Apple, Microsoft, Amazon, etc.
-    assert "apple" not in full_text, "Hallucinated 'Apple'"
-    assert "microsoft" not in full_text, "Hallucinated 'Microsoft'"
-    assert "amazon" not in full_text, "Hallucinated 'Amazon'"
+    # Assert Total_Revenue was NOT summed to 3700
+    assert "SUM=3,700.00" not in prompt, "Total_Revenue should not be summed"
+
+if __name__ == "__main__":
+    pytest.main(["-v", __file__])

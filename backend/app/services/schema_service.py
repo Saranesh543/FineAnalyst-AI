@@ -74,10 +74,12 @@ class SchemaService:
     # Public API
     # ------------------------------------------------------------------
 
-    async def get_schema(self, user_id: int | None = None) -> DatabaseSchemaResponse:
+    async def get_schema(self, user_id: int | None = None, session_id: str | None = None, custom_engine: AsyncEngine | None = None) -> DatabaseSchemaResponse:
         """
         Discover and return the full database schema.
+        If custom_engine is provided, it locks onto that engine (e.g. for in-memory inline data) and bypasses all other lookups.
         If user_id is provided, also introspects the user's specific analytics DB.
+        If session_id is provided and has attachments, ONLY those attachments are introspected.
 
         Returns:
             DatabaseSchemaResponse containing all table metadata.
@@ -86,24 +88,67 @@ class SchemaService:
             SchemaDiscoveryError: On any inspector-level failure.
         """
         t_start = time.perf_counter()
+        
+        if custom_engine:
+            logger.info("Schema discovery strictly locked to custom engine (bypassing defaults)")
+            async with custom_engine.connect() as conn:
+                schema = await self._introspect(conn)
+                elapsed_ms = (time.perf_counter() - t_start) * 1_000
+                logger.info("Schema discovery complete for custom engine | tables=%d | elapsed=%.1f ms", schema.table_count, elapsed_ms)
+                return schema
+                
         logger.info("Schema discovery started | url=%s", self._engine.url)
 
         try:
-            async with self._engine.connect() as conn:
-                schema = await self._introspect(conn)
+            attached_table_names = None
+            if session_id and user_id:
+                from app.database.session import AsyncSessionLocal
+                from sqlalchemy import select
+                from app.models.chat import FileAttachment
                 
-            if user_id is not None:
+                async with AsyncSessionLocal() as db:
+                    result = await db.execute(
+                        select(FileAttachment).where(
+                            FileAttachment.session_id == session_id,
+                            FileAttachment.user_id == user_id
+                        )
+                    )
+                    attachments = result.scalars().all()
+                    if attachments:
+                        attached_table_names = [att.table_name for att in attachments if att.table_name]
+                        if not attached_table_names:
+                            raise SchemaDiscoveryError("The uploaded file(s) are not structured data and cannot be queried.")
+            
+            schema = None
+            if attached_table_names is not None:
+                # Isolate to ONLY the uploaded tables in the user's DB
                 import os
                 from sqlalchemy.ext.asyncio import create_async_engine
                 user_db_path = f"./analytics_user_{user_id}.db"
-                if os.path.exists(user_db_path):
-                    user_engine = create_async_engine(f"sqlite+aiosqlite:///{user_db_path}")
-                    async with user_engine.connect() as user_conn:
-                        user_schema = await self._introspect(user_conn)
-                        schema.tables.extend(user_schema.tables)
-                        schema.table_count += user_schema.table_count
-                        schema.is_empty = schema.table_count == 0
-                    await user_engine.dispose()
+                if not os.path.exists(user_db_path):
+                    raise SchemaDiscoveryError("Uploaded file database not found.")
+                
+                user_engine = create_async_engine(f"sqlite+aiosqlite:///{user_db_path}")
+                async with user_engine.connect() as user_conn:
+                    schema = await self._introspect(user_conn, allowed_tables=attached_table_names)
+                await user_engine.dispose()
+            else:
+                # Default behavior: Introspect main DB + all user DB tables
+                async with self._engine.connect() as conn:
+                    schema = await self._introspect(conn)
+                    
+                if user_id is not None:
+                    import os
+                    from sqlalchemy.ext.asyncio import create_async_engine
+                    user_db_path = f"./analytics_user_{user_id}.db"
+                    if os.path.exists(user_db_path):
+                        user_engine = create_async_engine(f"sqlite+aiosqlite:///{user_db_path}")
+                        async with user_engine.connect() as user_conn:
+                            user_schema = await self._introspect(user_conn)
+                            schema.tables.extend(user_schema.tables)
+                            schema.table_count += user_schema.table_count
+                            schema.is_empty = schema.table_count == 0
+                        await user_engine.dispose()
 
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
             logger.info(
@@ -131,7 +176,7 @@ class SchemaService:
     # Private Helpers
     # ------------------------------------------------------------------
 
-    async def _introspect(self, conn: AsyncConnection) -> DatabaseSchemaResponse:
+    async def _introspect(self, conn: AsyncConnection, allowed_tables: list[str] | None = None) -> DatabaseSchemaResponse:
         """Run the full introspection against an open connection."""
         # --- Database name -------------------------------------------------
         database_name = self._derive_database_name(self._engine)
@@ -144,6 +189,14 @@ class SchemaService:
         # Exclude authentication/chat tables
         excluded_tables = {"users", "sessions", "messages", "alembic_version"}
         table_names = [name for name in table_names if name not in excluded_tables]
+        
+        if allowed_tables is not None:
+            table_names = [name for name in table_names if name in allowed_tables]
+            # Check if we found the requested tables
+            missing = set(allowed_tables) - set(table_names)
+            if missing:
+                logger.error("Could not find uploaded file tables in DB: %s", missing)
+                raise SchemaDiscoveryError(f"Uploaded file table(s) not found in database: {', '.join(missing)}")
         
         logger.debug("Discovered tables: %s", table_names)
 

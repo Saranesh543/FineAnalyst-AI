@@ -41,6 +41,7 @@ class VisualizationMetadata(BaseModel):
     y_label: str | None = Field(default=None, description="Human readable label for Y-axis.")
     number_format: str | None = Field(default=None, description="Recommended format (e.g., currency, compact, percentage).")
     interactive: bool = Field(default=True, description="Whether the chart should support interactivity like brushing.")
+    mermaid_code: str | None = Field(default=None, description="Generated Mermaid syntax if chart type is 'mermaid'.")
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ class VisualizationRecommendation(BaseModel):
     """Recommended visualization format."""
 
     chart: str = Field(
-        description="The recommended chart type (bar, line, pie, scatter, area, histogram, table)."
+        description="The recommended chart type (bar, line, pie, scatter, area, histogram, table, mermaid)."
     )
     confidence: float = Field(
         description="Confidence score for this recommendation (0.0 to 1.0).",

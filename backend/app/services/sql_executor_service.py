@@ -137,13 +137,16 @@ class SQLExecutorService:
         self._engine = db_engine
         logger.debug("SQLExecutorService initialised.")
 
-    async def execute_sql(self, sql: str, user_id: int | None = None, user_question: str = "") -> SQLExecutionResponse:
+    async def execute_sql(
+        self, sql: str, user_id: int | None = None, custom_engine: AsyncEngine | None = None, user_question: str = ""
+    ) -> SQLExecutionResponse:
         """
         Validate and execute the SQL query.
 
         Args:
             sql: The raw SQL query string to execute.
             user_id: Optional user identifier to attach specific user databases or views.
+            custom_engine: Optional database engine to use instead of the default.
             user_question: The user's question, for logging purposes.
 
         Returns:
@@ -179,10 +182,12 @@ class SQLExecutorService:
         columns: list[str] = []
         rows: list[list[Any]] = []
 
+        engine_to_use = custom_engine if custom_engine else self._engine
+        
         try:
-            async with self._engine.connect() as conn:
+            async with engine_to_use.connect() as conn:
                 try:
-                    if user_id is not None:
+                    if user_id is not None and not custom_engine:
                         import os
                         user_db_path = f"./analytics_user_{user_id}.db"
                         if os.path.exists(user_db_path):
@@ -224,14 +229,14 @@ class SQLExecutorService:
                             rows.append(list(row))
                 finally:
                     # Always try to detach the database to prevent polluting the connection pool
-                    if user_id is not None:
+                    if user_id is not None and not custom_engine:
                         try:
                             await conn.execute(text("DETACH DATABASE user_db"))
                         except Exception:
                             pass
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
-            db_path = str(self._engine.url)
+            db_path = str(custom_engine.url) if custom_engine else str(self._engine.url)
             
             # Extract underlying SQLite exception if possible
             sqlalchemy_msg = str(exc)

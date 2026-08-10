@@ -18,7 +18,9 @@ interface AuthState {
   clearError: () => void;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const _rawUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const _cleanBase = _rawUrl.replace(/\/+$/, '');
+const API_BASE = _cleanBase.endsWith('/api/v1') ? _cleanBase : `${_cleanBase}/api/v1`;
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -93,7 +95,7 @@ export const useAuthStore = create<AuthState>()(
         }
 
         try {
-          const res = await fetch(`${API_BASE}/api/v1/auth/me`, {
+          const res = await fetch(`${API_BASE}/auth/me`, {
             headers: { Authorization: `Bearer ${token}` },
           });
 

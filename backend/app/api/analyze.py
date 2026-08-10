@@ -76,6 +76,26 @@ async def analyze_workflow(
             user_id=current_user.id,
             session_id=payload.session_id
         )
+        # Reconstruct query_plan and sql from response if available
+        query_plan_str = "N/A"
+        sql_str = "N/A"
+        if response.query_plan:
+            import json
+            query_plan_str = json.dumps(response.query_plan)
+        if response.sql:
+            sql_str = response.sql
+
+        logger.info(
+            "\n[Analytics] Question: %s\n"
+            "[Analytics] QueryPlan: %s\n"
+            "[Analytics] Stage: success\n"
+            "[Analytics] SQL: %s\n"
+            "[Analytics] Error: None",
+            payload.question,
+            query_plan_str,
+            sql_str
+        )
+        
         response_json = response.model_dump(mode="json")
         logger.info("[%s] Analyze completed successfully. HTTP 200.", request_id)
         logger.debug("[%s] Response Body: %s", request_id, response_json)
@@ -84,6 +104,29 @@ async def analyze_workflow(
             content=response_json,
         )
     except AnalyticsWorkflowError as exc:
+        # Log the required formatted analytics error
+        # Reconstruct query_plan and sql if they exist in the steps
+        query_plan_str = "N/A"
+        sql_str = "N/A"
+        for step in exc.steps:
+            if step.name == "intent_routing" and step.detail:
+                query_plan_str = step.detail
+            if step.name == "sql_generation" and step.detail:
+                sql_str = step.detail
+
+        logger.error(
+            "\n[Analytics] Question: %s\n"
+            "[Analytics] QueryPlan: %s\n"
+            "[Analytics] Stage: %s\n"
+            "[Analytics] SQL: %s\n"
+            "[Analytics] Error: %s",
+            payload.question,
+            query_plan_str,
+            exc.stage,
+            sql_str,
+            str(exc)
+        )
+
         # Log the full internal traceback first — visible in backend logs
         logger.exception(
             "Analytics workflow failed | stage=%s | exc_type=%s | exc=%s",

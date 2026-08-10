@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { formatNumber, formatTick, CustomTooltip, ChartDefs, COLORS } from './chart-utils';
 import { EvidenceArtifact } from '@/lib/types/chat';
 
-export function BarChartWidget({ artifact, xKey, yKey, isHorizontal = false }: { artifact: EvidenceArtifact, xKey: string, yKey: string, isHorizontal?: boolean }) {
+export function BarChartWidget({ artifact, xKey, yKeys, isHorizontal = false }: { artifact: EvidenceArtifact, xKey: string, yKeys: string[], isHorizontal?: boolean }) {
   const [hiddenSeries, setHiddenSeries] = useState<Record<string, boolean>>({});
   
   const toggleSeries = (dataKey: string) => {
@@ -24,9 +24,11 @@ export function BarChartWidget({ artifact, xKey, yKey, isHorizontal = false }: {
           <YAxis type="category" dataKey={xKey} tickFormatter={formatTick} width={90} stroke="rgba(255,255,255,0.2)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }} />
           <Tooltip content={<CustomTooltip formatType={format} />} cursor={{ fill: 'rgba(34,211,238,0.05)' }} />
           <Legend onClick={(e: any) => toggleSeries(String(e.dataKey))} wrapperStyle={{ paddingTop: '20px', cursor: 'pointer', fontSize: '12px', color: 'rgba(255,255,255,0.7)' }} />
-          {!hiddenSeries[yKey] && (
-            <Bar dataKey={yKey} name={artifact.metadata?.y_label || yKey} fill={COLORS[0]} radius={[0, 4, 4, 0]} maxBarSize={40} filter="url(#cyanGlow)" animationDuration={700} animationEasing="ease-out" />
-          )}
+          {yKeys.map((key, idx) => (
+            !hiddenSeries[key] && (
+              <Bar key={key} dataKey={key} name={yKeys.length === 1 && artifact.metadata?.y_label ? artifact.metadata.y_label : key} fill={COLORS[idx % COLORS.length]} radius={[0, 4, 4, 0]} maxBarSize={40} filter="url(#cyanGlow)" animationDuration={700} animationEasing="ease-out" />
+            )
+          ))}
         </BarChart>
       </ResponsiveContainer>
     );
@@ -41,9 +43,11 @@ export function BarChartWidget({ artifact, xKey, yKey, isHorizontal = false }: {
         <YAxis tickFormatter={(val) => formatNumber(val, format)} stroke="rgba(255,255,255,0.2)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }} />
         <Tooltip content={<CustomTooltip formatType={format} />} cursor={{ fill: 'rgba(34,211,238,0.05)' }} />
         <Legend onClick={(e: any) => toggleSeries(String(e.dataKey))} wrapperStyle={{ paddingTop: '20px', cursor: 'pointer', fontSize: '12px', color: 'rgba(255,255,255,0.7)' }} />
-        {!hiddenSeries[yKey] && (
-          <Bar dataKey={yKey} name={artifact.metadata?.y_label || yKey} fill={COLORS[0]} radius={[4, 4, 0, 0]} maxBarSize={60} filter="url(#cyanGlow)" animationDuration={700} animationEasing="ease-out" />
-        )}
+        {yKeys.map((key, idx) => (
+          !hiddenSeries[key] && (
+            <Bar key={key} dataKey={key} name={yKeys.length === 1 && artifact.metadata?.y_label ? artifact.metadata.y_label : key} fill={COLORS[idx % COLORS.length]} radius={[4, 4, 0, 0]} maxBarSize={60} filter="url(#cyanGlow)" animationDuration={700} animationEasing="ease-out" />
+          )
+        ))}
         {showBrush && <Brush dataKey={xKey} height={30} stroke="#8884d8" />}
       </BarChart>
     </ResponsiveContainer>

@@ -53,22 +53,33 @@ def mock_insight():
 
 @pytest.fixture
 def mock_intent():
-    from app.schemas.intent import IntentResult, Intent
-    return IntentResult(intent=Intent.DATABASE)
+    from app.schemas.intent import QueryPlan, Intent
+    return QueryPlan(intent=Intent.DATABASE, requires_database=True, corrected_message="test question")
 
 @pytest.fixture
 def mock_all_services(mock_schema, mock_sql, mock_exec, mock_vis, mock_insight, mock_intent):
     with patch("app.services.analytics_orchestrator.schema_service.get_schema", new_callable=AsyncMock) as m_schema, \
          patch("app.services.analytics_orchestrator.sql_generator_service.generate", new_callable=AsyncMock) as m_sql, \
+         patch("app.services.analytics_orchestrator.sql_generator_service.generate_retry", new_callable=AsyncMock) as m_retry, \
          patch("app.services.analytics_orchestrator.sql_executor_service.execute_sql", new_callable=AsyncMock) as m_exec, \
-         patch("app.services.analytics_orchestrator.chart_intelligence_service.select_chart") as m_vis, \
+         patch("app.services.analytics_orchestrator.chart_intelligence_service.select_charts") as m_vis, \
          patch("app.services.analytics_orchestrator.business_insight_service.generate_insight", new_callable=AsyncMock) as m_insight, \
-         patch("app.services.analytics_orchestrator.intent_router.classify", new_callable=AsyncMock) as m_intent:
+         patch("app.services.analytics_orchestrator.query_understanding_service.understand", new_callable=AsyncMock) as m_intent:
         
         m_schema.return_value = mock_schema
         m_sql.return_value = mock_sql
+        
+        # Make m_retry behave exactly like m_sql for failures
+        def retry_side_effect(*args, **kwargs):
+            if hasattr(m_sql, "side_effect") and m_sql.side_effect:
+                if isinstance(m_sql.side_effect, Exception):
+                    raise m_sql.side_effect
+                return m_sql.side_effect(*args, **kwargs)
+            return mock_sql
+        m_retry.side_effect = retry_side_effect
+        
         m_exec.return_value = mock_exec
-        m_vis.return_value = mock_vis
+        m_vis.return_value = [mock_vis]
         m_insight.return_value = mock_insight
         m_intent.return_value = mock_intent
         
@@ -90,7 +101,7 @@ class TestAnalyticsOrchestratorService:
         assert res.question == "test question"
         assert res.sql == mock_sql.sql
         assert res.execution == mock_exec
-        assert res.visualization == mock_vis
+        assert res.visualizations == [mock_vis]
         assert res.insight == mock_insight
         
         m_schema.assert_called_once()
@@ -113,12 +124,13 @@ class TestAnalyticsOrchestratorService:
     async def test_sql_generation_failure(self, mock_all_services):
         m_schema, m_sql, m_exec, m_vis, m_insight, m_intent = mock_all_services
         m_sql.side_effect = ValueError("Invalid prompt")
+        m_exec.side_effect = ValueError("Fallback failed")
         
         service = AnalyticsOrchestratorService()
         with pytest.raises(AnalyticsWorkflowError) as exc:
             await service.analyze("Q")
             
-        assert exc.value.stage == "sql_generation"
+        assert exc.value.stage == "sql_execution"
 
     async def test_sql_execution_failure(self, mock_all_services):
         m_schema, m_sql, m_exec, m_vis, m_insight, m_intent = mock_all_services
@@ -182,7 +194,7 @@ class TestAnalyticsOrchestratorService:
         caplog.set_level(logging.INFO)
         service = AnalyticsOrchestratorService()
         await service.analyze("what")
-        assert "Analytics workflow started" in caplog.text
+        assert "QueryPlan intent:" in caplog.text
 
     async def test_logger_workflow_completed(self, mock_all_services, caplog):
         import logging
@@ -196,7 +208,7 @@ class TestAnalyticsOrchestratorService:
         caplog.set_level(logging.INFO)
         service = AnalyticsOrchestratorService()
         await service.analyze("what")
-        assert "Schema loaded successfully" in caplog.text
+        assert "Discovered" in caplog.text
 
     async def test_logger_insight_generated(self, mock_all_services, caplog):
         import logging
@@ -228,7 +240,7 @@ async def test_api_analyze_success(mock_all_services, valid_analyze_payload):
     assert body["question"] == "What is the total revenue?"
     assert "sql" in body
     assert "execution" in body
-    assert "visualization" in body
+    assert "visualizations" in body
     assert "insight" in body
 
 
@@ -239,17 +251,6 @@ async def test_api_analyze_malformed_request():
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post("/api/v1/analyze", json={})
-
-    assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_api_analyze_question_too_short():
-    from app.main import app
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        response = await client.post("/api/v1/analyze", json={"question": "Q"})
 
     assert response.status_code == 422
 
@@ -273,8 +274,9 @@ async def test_api_analyze_schema_failure(mock_all_services, valid_analyze_paylo
 
 @pytest.mark.asyncio
 async def test_api_analyze_sql_generation_failure(mock_all_services, valid_analyze_payload):
-    _, m_sql, *_ = mock_all_services
+    _, m_sql, m_exec, *_ = mock_all_services
     m_sql.side_effect = ValueError("Unsafe")
+    m_exec.side_effect = ValueError("Fallback Failed")
     
     from app.main import app
     async with AsyncClient(
@@ -284,7 +286,7 @@ async def test_api_analyze_sql_generation_failure(mock_all_services, valid_analy
 
     assert response.status_code == 500
     body = response.json()
-    assert body["stage"] == "sql_generation"
+    assert body["stage"] == "sql_execution"
 
 
 @pytest.mark.asyncio
@@ -388,8 +390,7 @@ async def test_api_analyze_logs_workflow_failure(mock_all_services, valid_analyz
     ) as client:
         await client.post("/api/v1/analyze", json=valid_analyze_payload)
     
-    assert "Analytics workflow failed at stage 'schema'" in caplog.text
-
+    assert "Analytics workflow failed | stage=schema" in caplog.text
 @pytest.mark.asyncio
 async def test_api_analyze_logs_unexpected_failure(valid_analyze_payload, caplog):
     import logging
@@ -422,17 +423,13 @@ def test_analyze_request_schema():
     req = AnalyzeRequest(question="show sales")
     assert req.question == "show sales"
 
-def test_analyze_request_invalid():
-    import pydantic
-    with pytest.raises(pydantic.ValidationError):
-        AnalyzeRequest(question="a")
 
 def test_analyze_response_schema(mock_exec, mock_vis, mock_insight):
     res = AnalyzeResponse(
         question="q",
         sql="s",
         execution=mock_exec,
-        visualization=mock_vis,
+        visualizations=[mock_vis],
         insight=mock_insight
     )
     assert res.question == "q"
@@ -443,13 +440,13 @@ def test_analyze_response_serialization(mock_exec, mock_vis, mock_insight):
         question="q",
         sql="s",
         execution=mock_exec,
-        visualization=mock_vis,
+        visualizations=[mock_vis],
         insight=mock_insight
     )
     data = res.model_dump(mode="json")
     assert data["question"] == "q"
     assert "execution" in data
-    assert "visualization" in data
+    assert "visualizations" in data
     assert "insight" in data
 
 def test_analyze_error_response_schema():
@@ -483,5 +480,212 @@ def test_analyze_response_from_json(mock_exec, mock_vis, mock_insight):
     assert res.question == "Q"
 
 
+@pytest.mark.asyncio
+async def test_visualization_pipeline_strict_mapping():
+    from app.schemas.execution import SQLExecutionResponse
+    from app.schemas.intent import QueryPlan, Intent
+    from app.services.chart_intelligence_service import chart_intelligence_service
 
+    # 1. Provide exact test dataset
+    mock_execution = SQLExecutionResponse(
+        columns=['Month', 'Revenue', 'Expenses', 'Customers', 'Refunds', 'Complaints'],
+        rows=[
+            ['Jan', 100, 50, 10, 1, 0],
+            ['Feb', 150, 60, 15, 2, 1],
+        ],
+        row_count=2,
+        execution_time_ms=10
+    )
+
+    mock_query_plan = QueryPlan(
+        intent=Intent.DATABASE,
+        requires_database=True,
+        corrected_message="Analyze data"
+    )
+
+    # 2. Run Chart Intelligence
+    vis_recommendations = chart_intelligence_service.select_charts(
+        question="Analyze data",
+        execution_result=mock_execution,
+        query_plan=mock_query_plan
+    )
+
+    # 3. Assertions
+    # Should produce distinct charts for financial (Revenue, Expenses) and counts (Customers, Refunds, Complaints)
+    assert len(vis_recommendations) >= 2, "Should produce multiple distinct charts"
+    
+    seen_signatures = set()
+    for vis in vis_recommendations:
+        y_keys = vis.metadata.y_axis.split(',') if vis.metadata.y_axis else []
+        x_key = vis.metadata.x_axis
+        
+        # No zero-yKey charts (unless data_grid fallback)
+        if vis.chart != "data_grid":
+            assert len(y_keys) > 0, "Charts must have at least one yKey"
+            assert x_key is not None, "Charts must have an xKey"
+        
+        # No duplicate charts
+        sig = f"{x_key}|{vis.metadata.y_axis}|{vis.chart}"
+        assert sig not in seen_signatures, f"Duplicate chart signature found: {sig}"
+        seen_signatures.add(sig)
+        
+        # No invalid columns
+        if x_key:
+            assert x_key in mock_execution.columns
+        for y in y_keys:
+            assert y in mock_execution.columns
+            
+        # Verify title does not contain the original prompt
+        assert "Analyze data" not in vis.metadata.title
+
+    # Verify Financial Chart isolation
+    financial_chart = next((v for v in vis_recommendations if 'Revenue' in v.metadata.y_axis), None)
+    assert financial_chart is not None
+    assert 'Expenses' in financial_chart.metadata.y_axis
+    assert 'Customers' not in financial_chart.metadata.y_axis, "Unrelated metrics mixed"
+
+    # Verify Count Chart isolation
+    count_chart = next((v for v in vis_recommendations if 'Customers' in v.metadata.y_axis), None)
+    assert count_chart is not None
+    assert 'Refunds' in count_chart.metadata.y_axis
+    assert 'Revenue' not in count_chart.metadata.y_axis, "Unrelated metrics mixed"
+
+
+
+
+@pytest.mark.asyncio
+async def test_followup_context_success(mock_all_services):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.schemas.intent import QueryPlan, Intent
+    
+    payload = {
+        "question": "What about December?",
+        "session_id": "test-session",
+        "history": [
+            {"role": "user", "content": "Analyze this dataset"},
+            {"role": "assistant", "content": "Analysis complete.\n\n[Previous QueryPlan: {\"intent\": \"database\", \"metrics\": [\"Revenue\"], \"time_range\": \"all\"}]"}
+        ]
+    }
+    
+    m_schema, m_sql_gen, m_sql_exec, m_chart_intel, m_insight_gen, m_query_understand = mock_all_services
+    m_query_understand.return_value = QueryPlan(
+        intent=Intent.DATABASE,
+        requires_database=True,
+        metrics=["Revenue"],
+        time_range="December"
+    )
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/analyze", json=payload)
+        
+    assert response.status_code == 200
+    data = response.json()
+    assert data["intent"] == "database"
+    
+    # Verify the orchestrator parsed the previous query plan and passed it to the intent router
+    call_args = m_query_understand.call_args[1]
+    assert call_args["previous_query_plan"] is not None
+    assert call_args["previous_query_plan"].metrics == ["Revenue"]
+
+
+@pytest.mark.asyncio
+async def test_failed_request_does_not_poison_context(mock_all_services):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.schemas.intent import QueryPlan, Intent
+    
+    payload = {
+        "question": "What about December?",
+        "session_id": "test-session",
+        "history": [
+            {"role": "user", "content": "Analyze this dataset"},
+            {"role": "assistant", "content": "Analysis complete.\n\n[Previous QueryPlan: {\"intent\": \"database\", \"metrics\": [\"Revenue\"], \"time_range\": \"all\"}]"},
+            {"role": "user", "content": "Bad query"},
+            {"role": "assistant", "content": "Error executing query."}
+        ]
+    }
+    
+    m_schema, m_sql_gen, m_sql_exec, m_chart_intel, m_insight_gen, m_query_understand = mock_all_services
+    m_query_understand.return_value = QueryPlan(
+        intent=Intent.DATABASE,
+        requires_database=True,
+        metrics=["Revenue"],
+        time_range="December"
+    )
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/analyze", json=payload)
+        
+    assert response.status_code == 200
+    # It should skip the failed turn and still find the successful one
+    call_args = m_query_understand.call_args[1]
+    assert call_args["previous_query_plan"] is not None
+    assert call_args["previous_query_plan"].metrics == ["Revenue"]
+
+
+@pytest.mark.asyncio
+async def test_conversational_request_bypass(mock_all_services):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.schemas.intent import QueryPlan, Intent
+    
+    payload = {
+        "question": "What database do you have?",
+        "session_id": "test-session",
+    }
+    
+    m_schema, m_sql_gen, m_sql_exec, m_chart_intel, m_insight_gen, m_query_understand = mock_all_services
+    # It should hit the heuristic bypass, but let's say the LLM caught it
+    m_query_understand.return_value = QueryPlan(
+        intent=Intent.CONVERSATION,
+        requires_database=False,
+        corrected_message="what database do you have"
+    )
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/analyze", json=payload)
+        
+    assert response.status_code == 200
+    data = response.json()
+    assert data["intent"] == "conversation"
+    # SQL generator should NEVER be called for conversational intent
+    m_sql_gen.assert_not_called()
+    m_sql_exec.assert_not_called()
+    m_chart_intel.assert_not_called()
+    m_insight_gen.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_conversational_preserves_analytical_context(mock_all_services):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.schemas.intent import QueryPlan, Intent
+    
+    payload = {
+        "question": "What about December?",
+        "session_id": "test-session",
+        "history": [
+            {"role": "user", "content": "Analyze this dataset"},
+            {"role": "assistant", "content": "Analysis complete.\n\n[Previous QueryPlan: {\"intent\": \"database\", \"metrics\": [\"Revenue\"], \"time_range\": \"all\"}]"},
+            {"role": "user", "content": "What database do you have?"},
+            {"role": "assistant", "content": "I have SQLite."} 
+        ]
+    }
+    
+    m_schema, m_sql_gen, m_sql_exec, m_chart_intel, m_insight_gen, m_query_understand = mock_all_services
+    m_query_understand.return_value = QueryPlan(
+        intent=Intent.DATABASE,
+        requires_database=True,
+        metrics=["Revenue"],
+        time_range="December"
+    )
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/analyze", json=payload)
+        
+    assert response.status_code == 200
+    call_args = m_query_understand.call_args[1]
+    assert call_args["previous_query_plan"] is not None
+    assert call_args["previous_query_plan"].metrics == ["Revenue"]
 

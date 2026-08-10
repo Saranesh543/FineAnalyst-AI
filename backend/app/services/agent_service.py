@@ -183,9 +183,11 @@ class AgentService:
                 exc,
             )
 
-            import traceback
-            traceback.print_exc()
-            raise
+            return AgentErrorResponse(
+                status=AgentStatus.ERROR,
+                error_code=error_code,
+                message=self._humanise_error(exc)
+            )
 
     # ------------------------------------------------------------------
     # Session Management Helpers

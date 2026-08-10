@@ -19,6 +19,7 @@ import { ScatterChartWidget } from './charts/ScatterChartWidget';
 import { TreemapWidget } from './charts/TreemapWidget';
 import { MapPlaceholderWidget } from './charts/MapPlaceholderWidget';
 import { DataGridWidget } from './charts/DataGridWidget';
+import { MermaidWidget } from './MermaidWidget';
 import { SqlViewer } from './SqlViewer';
 import { AiExecutiveSummary } from './insights/AiExecutiveSummary';
 import { BusinessRecommendations } from './insights/BusinessRecommendations';
@@ -32,18 +33,63 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
   let xKey = artifact.metadata?.x_axis || artifact.encoding?.x;
   let yKey = artifact.metadata?.y_axis || artifact.encoding?.y;
   
-  if (!xKey || !yKey) {
-    if (artifact.data && artifact.data.length > 0) {
-      const keys = Object.keys(artifact.data[0]);
-      xKey = xKey || keys.find(k => typeof artifact.data[0][k] === 'string') || keys[0];
-      yKey = yKey || keys.find(k => typeof artifact.data[0][k] === 'number') || keys[1] || keys[0];
-    }
-  }
+  // STRICT MODE: Rely only on metadata. No fallback guessing.
 
   const chartType = artifact.metadata?.chart_type || artifact.chartType || 'data_grid';
   
+  // Sanitize data to prevent Recharts from overwriting points with identical xKey values
+  let safeData = artifact.data;
+  if (safeData && safeData.length > 0 && xKey && ['line', 'bar', 'area', 'scatter'].includes(chartType)) {
+    const xValues = new Set();
+    let requiresUniqueing = false;
+    for (const row of safeData) {
+      if (xValues.has(row[xKey])) {
+        requiresUniqueing = true;
+        break;
+      }
+      xValues.add(row[xKey]);
+    }
+    if (requiresUniqueing) {
+      safeData = safeData.map((row, idx) => ({
+        ...row,
+        [xKey!]: `${row[xKey]} (${idx + 1})`
+      }));
+    }
+  }
+
   console.error(`[TRACE] EvidenceArtifactRenderer Props: chartType=${chartType}, title=${artifact.title}, data.length=${artifact.data?.length}, xKey=${xKey}, yKey=${yKey}, metadata=${JSON.stringify(artifact.metadata)}`);
   
+  // Diagnostics
+  if (artifact.data && artifact.data.length > 0 && yKey) {
+    let chartRevenueSum = 0;
+    artifact.data.forEach(d => {
+      if (typeof d[yKey!] === 'number') {
+        chartRevenueSum += d[yKey!];
+      } else if (typeof d[yKey!] === 'string' && !isNaN(parseFloat(d[yKey!]))) {
+        chartRevenueSum += parseFloat(d[yKey!]);
+      }
+    });
+
+    // Attempt to extract the KPI total revenue from the insights
+    let kpiTotal = 0;
+    if (artifact.insights?.kpi_cards) {
+      const revenueCard = artifact.insights.kpi_cards.find(c => c.label.toLowerCase().includes('revenue') || c.label.toLowerCase().includes('total'));
+      if (revenueCard && typeof revenueCard.value === 'number') {
+        kpiTotal = revenueCard.value;
+      } else if (revenueCard && typeof revenueCard.value === 'string' && !isNaN(parseFloat(revenueCard.value.replace(/[^0-9.-]+/g, '')))) {
+        kpiTotal = parseFloat(revenueCard.value.replace(/[^0-9.-]+/g, ''));
+      }
+    }
+
+    const difference = Math.abs(kpiTotal - chartRevenueSum);
+
+    console.log(`[Analytics] Result rows: ${artifact.rowCountTotal || artifact.data.length}`);
+    console.log(`[Analytics] Chart rows: ${artifact.data.length}`);
+    console.log(`[Analytics] KPI total revenue: ${kpiTotal}`);
+    console.log(`[Analytics] Chart revenue sum: ${chartRevenueSum}`);
+    console.log(`[Analytics] Revenue difference: ${difference}`);
+  }
+
   // Instrument logging as requested
   if (process.env.NODE_ENV === 'development') {
     console.log("Chart Metadata Debug:", {
@@ -98,6 +144,20 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
     }
   };
 
+  const formatSQL = (rawSql?: string) => {
+    if (!rawSql) return '';
+    if (rawSql.split('\n').length > 2) return rawSql;
+    
+    return rawSql
+      .replace(/\s+(FROM|WHERE|GROUP BY|ORDER BY|LIMIT|HAVING|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN)\s+/gi, '\n$1 ')
+      .replace(/^(SELECT)\s+/i, '$1\n    ')
+      .replace(/,\s*/g, ',\n    ');
+  };
+
+
+
+  let yKeys = typeof yKey === 'string' && yKey.includes(',') ? yKey.split(',').map(s => s.trim()) : (yKey ? [yKey] : []);
+
   const renderChart = () => {
     if (!artifact.data || artifact.data.length === 0) {
       return (
@@ -108,7 +168,7 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
     }
 
     const needsAxes = !['kpi', 'data_grid', 'map'].includes(chartType);
-    if (needsAxes && (!xKey || !yKey)) {
+    if (needsAxes && (!xKey || yKeys.length === 0)) {
       return (
         <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground bg-muted/10 rounded-lg border">
           <Database className="h-8 w-8 text-muted-foreground/50 mb-2" />
@@ -118,31 +178,35 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
       );
     }
 
+    const safeArtifact = { ...artifact, data: safeData };
+
     switch (chartType) {
       case 'kpi':
-        return <KpiCard artifact={artifact} xKey={xKey!} yKey={yKey!} />;
+        return <KpiCard artifact={safeArtifact} xKey={xKey!} yKey={yKeys[0]} />;
       case 'bar':
-        return <BarChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
+        return <BarChartWidget artifact={safeArtifact} xKey={xKey!} yKeys={yKeys} />;
       case 'horizontal_bar':
-        return <BarChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} isHorizontal={true} />;
+        return <BarChartWidget artifact={safeArtifact} xKey={xKey!} yKeys={yKeys} isHorizontal={true} />;
       case 'line':
-        return <LineChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
+        return <LineChartWidget artifact={safeArtifact} xKey={xKey!} yKeys={yKeys} />;
       case 'area':
-        return <AreaChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
+        return <AreaChartWidget artifact={safeArtifact} xKey={xKey!} yKeys={yKeys} />;
       case 'pie':
-        return <PieChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
+        return <PieChartWidget artifact={safeArtifact} xKey={xKey!} yKey={yKeys[0]} />;
       case 'donut':
-        return <PieChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} isDonut={true} />;
+        return <PieChartWidget artifact={safeArtifact} xKey={xKey!} yKey={yKeys[0]} isDonut={true} />;
       case 'scatter':
-        return <ScatterChartWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
+        return <ScatterChartWidget artifact={safeArtifact} xKey={xKey!} yKey={yKeys[0]} />;
       case 'treemap':
-        return <TreemapWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
+        return <TreemapWidget artifact={safeArtifact} xKey={xKey!} yKey={yKeys[0]} />;
       case 'map':
-        return <MapPlaceholderWidget artifact={artifact} xKey={xKey!} yKey={yKey!} />;
+        return <MapPlaceholderWidget artifact={safeArtifact} xKey={xKey!} yKeys={yKeys} />;
+      case 'mermaid':
+        return <MermaidWidget code={safeArtifact.metadata?.mermaid_code} title={safeArtifact.metadata?.title} />;
       case 'data_grid':
-        return <DataGridWidget artifact={artifact} />;
+        return <DataGridWidget artifact={safeArtifact} />;
       default:
-        return <DataGridWidget artifact={artifact} />;
+        return <DataGridWidget artifact={safeArtifact} />;
     }
   };
 
@@ -179,8 +243,8 @@ function EvidenceCard({ artifact }: { artifact: EvidenceArtifact }) {
                     <DialogTitle>Generated SQL</DialogTitle>
                   </DialogHeader>
                   <div className="relative">
-                    <pre className="p-4 bg-muted rounded-md overflow-x-auto text-sm text-foreground">
-                      <code>{artifact.sql}</code>
+                    <pre className="p-4 bg-muted rounded-md overflow-x-auto overflow-y-auto max-h-[60vh] text-sm text-foreground whitespace-pre">
+                      <code>{formatSQL(artifact.sql)}</code>
                     </pre>
                     <Button variant="secondary" size="sm" className="absolute top-2 right-2" onClick={copySQL}>
                       {copiedSQL ? <Check className="h-4 w-4 mr-1 text-green-600" /> : <Copy className="h-4 w-4 mr-1" />}
