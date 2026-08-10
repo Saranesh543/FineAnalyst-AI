@@ -37,6 +37,7 @@
     "html-to-image": "^1.11.13",
     "katex": "^0.17.0",
     "lucide-react": "^0.446.0",
+    "mermaid": "^11.16.1",
     "motion": "^12.42.2",
     "nanoid": "^5.1.16",
     "next": "16.2.10",
