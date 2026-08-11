@@ -1,131 +1,301 @@
 # FineAnalyst
-*Ask your data questions. Get the analysis.*
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Next.js](https://img.shields.io/badge/Next.js-16.2-black?logo=next.js)](https://nextjs.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Pydantic-AI](https://img.shields.io/badge/Pydantic--AI-2.22-e92063)](https://pydantic.dev/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.3-38B2AC?logo=tailwind-css)](https://tailwindcss.com/)
+AI-Powered Conversational Data Analytics
 
-FineAnalyst is an intelligent analytical workspace that allows users to interact with structured datasets through natural language. Instead of simply generating SQL strings, FineAnalyst implements an end-to-end analytical pipeline: understanding analytical intent, executing queries safely against an application database, validating the results, and dynamically rendering the most appropriate visualization.
+Ask your data. Understand the answer. See the insight.
 
-It was built from the ground up by **FineWorks** to provide a robust, chat-based BI experience.
+[Live Demo] [GitHub] [FineWorks]
 
 ---
 
-## The Problem
+##  What if you could talk to your data?
 
-Most organizations possess massive amounts of data, but the barrier to entry isn't having the data—it's knowing how to query it, what to ask, and how to interpret the results.
+Most analytics tools make users learn the tool.
 
-Traditional analytics workflows require:
-- Deep knowledge of SQL and underlying schemas
-- Manually creating and running queries
-- Switching context between a database IDE, charting tools, and presentation software
-- Interpreting raw, unformatted tabular data
+FineAnalyst flips that idea.
 
-FineAnalyst aims to make interacting with data conversational, while keeping the analytical pipeline grounded in actual datasets rather than LLM hallucinations.
+Instead of writing queries, building dashboards, and manually interpreting numbers,
+you simply ask a question in natural language.
 
----
+"Which month had the highest revenue?"
 
-## The Core Idea
+"Why did sales drop in April?"
 
-FineAnalyst isn't just an "AI that writes SQL". It is an engineered pipeline that maps natural language to a deterministic analytical workflow.
+"Show me the trend."
 
-```text
-User Question
-      ↓
-Intent Understanding (Conversation vs. Analytics)
-      ↓
-Schema Discovery & Mapping
-      ↓
-SQL Generation
-      ↓
-Query Execution (via SQLAlchemy/SQLite)
-      ↓
-Validation & Fallback Handling
-      ↓
-Insight Generation + Dynamic Visualization (Mermaid / Recharts)
-```
+FineAnalyst turns those questions into analysis, explanations, tables and
+visualizations — inside one conversational workspace.
 
 ---
 
-## From Question → Answer
+##  See FineAnalyst in Action
 
-Here is a practical example of how FineAnalyst processes a user request.
-
-**User:**
-> *"Compare our monthly revenue and expenses."*
-
-**FineAnalyst:**
-1. **Understands Intent:** Identifies the request as an analytical database query.
-2. **Schema Discovery:** Scans the SQLite database for relevant tables (`transactions`, `revenue`, etc.).
-3. **Query Generation:** Writes the correct SQL query to aggregate monthly revenue and expenses.
-4. **Execution:** Runs the query securely against the database.
-5. **Validation:** Checks if the returned data matches the expected format (preventing hallucinated columns).
-6. **Visualization:** Identifies that time-series comparison data is best represented as a multi-line or bar chart, passing the optimal configuration to the frontend Mermaid/Recharts renderer.
-7. **Insight:** Generates an executive summary and KPIs based *only* on the executed data.
+[ADD YOUR BEST SCREENSHOT HERE]
 
 ---
 
-## Why It's Different: Engineering Decisions
+## ✨ Why FineAnalyst?
 
-We focused on building a durable application rather than a thin LLM wrapper. Here are a few key engineering decisions implemented in the repository:
+Traditional analytics:
 
-- **Intent Routing:** Questions like *"What database do you have?"* or *"Who created you?"* are deterministically intercepted as application meta-questions. They do not trigger expensive SQL generation pipelines.
-- **True Request Cancellation:** The chat interface implements a ChatGPT-style "Stop" button. We use `AbortController` on the frontend, and the FastAPI backend explicitly catches `asyncio.CancelledError`, immediately halting orchestration and saving tokens.
-- **Persistent Authentication:** Full JWT-based auth (with secure `bcrypt` hashed passwords via `pbkdf2_hmac` and salting) is built-in. Your session and conversation history persist across browser restarts, securely scoped to your `user_id`.
-- **Dynamic Mermaid Rendering:** Mermaid charts are heavily optimized. They are lazy-loaded via Next.js dynamic imports (`next/dynamic`) so the massive charting engine only executes when a visualization is actually requested, keeping the frontend bundle small and fast.
-- **Robust Rate Limiting:** The backend gracefully catches LLM provider rate limits (HTTP 429) and surfaces them as friendly UI toasts, rather than crashing the application or returning 500 Server Errors.
-- **Responsive Architecture:** The UI is built with a mobile-first approach using Tailwind CSS. Modals, chat bubbles, and even complex data-grids scale seamlessly down to 320px screens without horizontal scroll-locking.
+Data → Query → Result → Chart → Interpretation
+
+FineAnalyst:
+
+Question → AI Analysis → Insight → Visualization → Follow-up
+
+Everything happens inside one conversation.
 
 ---
 
-## Architecture & Tech Stack
+##  AI-Native Analytics
+
+FineAnalyst isn't just a chatbot with a chart attached.
+
+The application is designed around an analytical conversation.
+
+The user asks.
+The system understands.
+The analysis happens.
+The result is explained.
+The user asks the next question.
+
+This makes data exploration feel more like a conversation than a database interface.
+
+---
+
+## 📊 Visual Intelligence
+
+When numbers are difficult to understand as text, FineAnalyst can turn
+analytical results into visual representations.
+
+Supported visual experiences include:
+
+- Tables
+- Charts
+- Mermaid diagrams
+- Analytical explanations
+
+The goal is simple:
+
+Don't just give the user the numbers.
+
+Help them see the pattern.
+
+---
+
+##  Built for Real AI Usage
+
+A prototype can call an AI API.
+
+A real application has to handle what happens when things go wrong.
+
+FineAnalyst includes:
+
+✓ AI rate-limit handling  
+✓ Request cancellation  
+✓ Conversation persistence  
+✓ Authentication/session handling  
+✓ Responsive UI  
+✓ Structured AI responses  
+✓ Error-aware API handling  
+✓ Frontend/backend separation  
+
+If a user presses Stop while the AI is responding, the active request can be
+cancelled instead of leaving the user waiting.
+
+If an AI provider reaches a rate limit, FineAnalyst handles the condition
+explicitly instead of hiding it behind a generic HTTP 500 error.
+
+---
+
+## ⏹️ Stop Means Stop
+
+AI responses can take time.
+
+Users should remain in control.
+
+While a response is generating:
+
+[ Stop ]
+
+can cancel the active request.
+
+A new request shouldn't compete with an unfinished previous request.
+
+This keeps the interaction closer to how modern AI assistants behave.
+
+---
+
+##  Conversations That Continue
+
+Analytics rarely ends with one question.
+
+Example:
+
+"Analyze my sales."
+
+↓
+
+"Which month performed best?"
+
+↓
+
+"Why?"
+
+↓
+
+"Show me the trend."
+
+↓
+
+"Compare it with the previous period."
+
+FineAnalyst keeps the interaction conversational so users can explore
+their data naturally.
+
+---
+
+## 📱 Built for Every Screen
+
+FineAnalyst is designed for:
+
+🖥️ Desktop  
+💻 Laptop  
+📱 Mobile  
+📟 Tablet
+
+The interface adapts to different screen sizes while keeping the
+conversation and analytical content usable.
+
+---
+
+##  Architecture
+
+User
+ ↓
+FineAnalyst UI
+ ↓
+Agent API
+ ↓
+Agent Service
+ ↓
+AI Provider
+ ↓
+Analysis
+ ↓
+Structured Response
+ ↓
+Visualization
+ ↓
+User
+
+Persistent conversation data is stored through the application's
+database layer.
+
+---
+
+## 🛠️ Technology
 
 ### Frontend
-- **Framework:** Next.js 16 (App Router)
-- **Styling:** Tailwind CSS v4, Framer Motion, Radix UI
-- **State Management:** Zustand (with local storage persistence)
-- **Visualizations:** Mermaid.js, Recharts, React Data Grid
+
+- Next.js
+- React
+- TypeScript
+- Responsive UI
+- Mermaid
+- Markdown rendering
 
 ### Backend
-- **Framework:** FastAPI (Asynchronous)
-- **Database:** SQLite with SQLAlchemy ORM and Alembic for migrations
-- **AI/LLM Orchestration:** Pydantic-AI for structured LLM responses and predictable output parsing
-- **Security:** JWT authentication, rate-limiting (slowapi), pbkdf2 password hashing
+
+- Python
+- FastAPI
+- SQLAlchemy
+- SQLite
+- Async request handling
+
+### AI
+
+- AI provider integration
+- Agent service architecture
+- Natural-language analysis
+- Conversational context
+
+### Deployment
+
+- Vercel
+- Render
+- GitHub
 
 ---
 
-## Run It Locally
+##  Example
 
-### 1. Start the Backend
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Or `venv\Scripts\activate` on Windows
-pip install -r requirements.txt
+Input:
 
-# Create a .env file and add your AI provider keys (e.g., GROQ_API_KEY)
-uvicorn app.main:app --reload --port 8000
-```
+"Analyze monthly revenue."
 
-### 2. Start the Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
+FineAnalyst can transform the request into:
 
-The application will be available at `http://localhost:3000`.
+• Structured data  
+• Trend analysis  
+• Visualization  
+• Explanation  
+• Follow-up insights
+
+The user doesn't need to know the underlying query or visualization syntax.
 
 ---
 
-## The FineWorks Team
+## 👥 Built by FineWorks
 
-FineAnalyst was created by **FineWorks**, a project-oriented technology team building solutions across software engineering, artificial intelligence, and data analysis.
+FineWorks is an innovation-driven technology team focused on building
+software, AI-powered applications and digital products that solve
+real-world problems.
 
-**Core Team:**
-- Saranesh
-- Praveen Balaji
-- Nitish
-- Sakthi Saran
+### Team
+
+**Saranesh**  
+**Praveen Balaji**  
+**Nitish**  
+**Sakthi Saran**
+
+---
+
+## 🌐 FineWorks
+
+Website: https://www.thefineworks.com/
+
+LinkedIn:
+https://www.linkedin.com/company/thefineworks/
+
+---
+
+## 🚀 Project
+
+FineAnalyst-AI
+
+GitHub:
+https://github.com/Saranesh543/FineAnalyst-AI
+
+---
+
+## 💭 The Idea
+
+We didn't want to build another dashboard.
+
+We wanted to explore a different question:
+
+> What if the question itself became the interface to analytics?
+
+That question became FineAnalyst.
+
+---
+
+# FineAnalyst
+
+### Ask the question.
+### Understand the data.
+### See the insight.
+
+Built by FineWorks.
