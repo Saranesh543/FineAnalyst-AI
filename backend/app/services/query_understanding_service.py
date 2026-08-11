@@ -46,6 +46,7 @@ If a Previous QueryPlan is provided, you must MERGE the new question's intent wi
 CRITICAL RULE: You may ONLY use columns present in the current dataset schema or context. Never invent columns. Never reuse columns from previous conversations or previous datasets if they are not in the current schema. If the requested concept is unavailable, explain that it cannot be calculated from the current dataset.
 CRITICAL RULE: Follow-up queries containing pronouns like "this", "that", "it", "these", "them" along with analytical verbs (create, show, compare, chart) MUST be classified as `database` intent. NEVER classify a request to chart or compare data as `conversation`.
 CRITICAL RULE: If the user asks "what database do you have?", "who are you?", "how does this work?", or asks questions ABOUT the system itself, you MUST classify it as `conversation` or `knowledge`. DO NOT classify it as `database`.
+CRITICAL RULE: Questions asking for explanations, reasoning, or meta-questions about your previous answers (e.g., "why didn't you...", "what did you mean by...") MUST be classified as `conversation` or `knowledge`. DO NOT attempt to generate SQL for these.
 """
 
 class QueryUnderstandingService:

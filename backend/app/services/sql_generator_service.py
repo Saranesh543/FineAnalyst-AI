@@ -71,8 +71,9 @@ _SYSTEM_PROMPT = (
     "MERGE, or EXEC.\n"
     "6. Reference only tables and columns that appear in the provided schema.\n"
     "7. Always end the statement with a semicolon.\n"
-    "8. ALWAYS use `AS` to explicitly alias aggregations and calculations with clean, readable names (e.g. `COUNT(id) AS customer_count`).\n"
+    "8. ALWAYS use `AS` to explicitly alias aggregations and calculations with clean, short, readable names (e.g. `COUNT(id) AS customers`, `SUM(revenue) AS total_revenue`).\n"
     "9. NEVER hallucinate columns. You may ONLY use columns present in the current dataset schema. If the user asks for a metric not available in the schema, do NOT invent it. You must alias derived metrics.\n"
+    "10. If the dataset contains a time or categorical dimension (e.g., Month, Date, Category) and the user asks for a comparison or trend, ALWAYS include that dimension in the SELECT and GROUP BY clauses to provide a breakdown, unless the user explicitly asks for a single total.\n"
 )
 
 

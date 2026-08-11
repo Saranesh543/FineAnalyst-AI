@@ -60,10 +60,13 @@ def extract_inline_data(message: str) -> tuple[str, pd.DataFrame | None, bool]:
             # Clean up column names
             df.columns = df.columns.str.strip()
             
-            # Clean up string values
+            # Clean up string values and attempt numeric conversion
             for col in df.columns:
                 if df[col].dtype == 'object':
                     df[col] = df[col].str.strip()
+                    # Try to convert to numeric, ignore errors to keep as string if it fails.
+                    # This ensures "$450,000" or " 120 " becomes a float/int so SQLite can SUM() it.
+                    df[col] = pd.to_numeric(df[col].str.replace(r'[\$,]', '', regex=True), errors='ignore')
             
             # Filter out the Markdown separator row (e.g. ---|---|---)
             # If the first row is completely made of hyphens and colons
