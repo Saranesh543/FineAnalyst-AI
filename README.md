@@ -4,7 +4,7 @@ AI-Powered Conversational Data Analytics
 
 Ask your data. Understand the answer. See the insight.
 
-[Live Demo] [GitHub] [FineWorks]
+[[Live Demo]](https://fine-analyst-ai.vercel.app/) 
 
 ---
 
