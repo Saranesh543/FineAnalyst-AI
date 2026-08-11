@@ -41,8 +41,9 @@ export function TopNav() {
     <header className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border/10 bg-background/50 backdrop-blur-md sticky top-0 z-50">
       <div className="flex items-center gap-4 md:gap-8">
         <SidebarTrigger className="md:hidden" />
-        <div className="text-lg md:text-xl font-medium tracking-tight flex items-center gap-1">
-          <span>FineAnalyst</span>
+        <div className="text-lg md:text-xl font-medium tracking-tight flex items-center gap-2">
+          <img src="/icon.png" alt="FineAnalyst Logo" className="w-8 h-8 rounded-xl object-contain shadow-sm" />
+          <span className="hidden md:inline-block">FineAnalyst</span>
         </div>
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
           {/* <DropdownMenu>

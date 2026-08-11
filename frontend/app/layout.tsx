@@ -8,7 +8,7 @@ import { Suspense } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  description: "Advanced business intelligence powered by you.",
+  description: "FineAnalyst is an AI-powered conversational data analytics application that helps you understand, analyze, and visualize your structured data.",
   metadataBase: new URL("http://localhost:3000"),
   title: "FineAnalyst",
 };

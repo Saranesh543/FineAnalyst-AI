@@ -45,7 +45,8 @@ export function LoginForm() {
   return (
     <div className="w-full max-w-md p-8 rounded-2xl bg-card/40 backdrop-blur-md border border-border/20 shadow-glow mx-auto">
       <div className="flex flex-col items-center space-y-2 mb-8">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-1 justify-center">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-3 justify-center">
+          <img src="/icon.png" alt="FineAnalyst Logo" className="w-10 h-10 rounded-2xl object-contain shadow-sm" />
           <span>FineAnalyst</span>
         </h1>
         <p className="text-muted-foreground text-sm font-light">Sign in to your account</p>

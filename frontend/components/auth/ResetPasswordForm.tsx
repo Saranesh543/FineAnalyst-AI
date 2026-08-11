@@ -61,8 +61,9 @@ export function ResetPasswordForm() {
   return (
     <div className="w-full max-w-md p-8 rounded-2xl bg-card/40 backdrop-blur-md border border-border/20 shadow-glow mx-auto">
       <div className="flex flex-col items-center space-y-2 mb-8">
-        <div className="text-2xl font-semibold flex items-center gap-1 tracking-tight">
-          <span>Set New</span><span className="text-cyan-400">Password</span>
+        <div className="text-2xl font-semibold flex items-center gap-3 tracking-tight justify-center">
+          <img src="/icon.png" alt="FineAnalyst Logo" className="w-10 h-10 rounded-2xl object-contain shadow-sm" />
+          <span>Set New Password</span>
         </div>
         <p className="text-muted-foreground text-sm font-light">Enter your new password below</p>
       </div>
