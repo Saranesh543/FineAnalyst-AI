@@ -12,9 +12,9 @@ export interface EvidenceArtifact {
   analysisId?: string
   kind: "chart" | "table" | "single_metric" | "data_grid" | "map" | "kpi" | "mermaid"
   chartType?: "bar" | "line" | "pie" | "scatter" | "data_grid" | "map" | "kpi" | "mermaid"
-  mermaidCode?: string
-  mermaidError?: string
-  diagramType?: string
+  mermaidCode?: string | null
+  mermaidError?: string | null
+  diagramType?: string | null
   data: Record<string, any>[]
   encoding?: { x?: string; y?: string; series?: string }
   sql: string

@@ -52,6 +52,10 @@ export interface AnalyzeResponse {
       title: string;
       encoding: Record<string, any>;
       description?: string;
+      mermaid_code?: string | null;
+      mermaid_error?: string | null;
+      diagram_type?: string | null;
+      chart_data?: Record<string, any>[] | null;
     };
   };
   visualizations?: {
@@ -65,6 +69,10 @@ export interface AnalyzeResponse {
       title: string;
       encoding: Record<string, any>;
       description?: string;
+      mermaid_code?: string | null;
+      mermaid_error?: string | null;
+      diagram_type?: string | null;
+      chart_data?: Record<string, any>[] | null;
     };
   }[];
   insight: {
