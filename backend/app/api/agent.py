@@ -11,8 +11,9 @@ from __future__ import annotations
 import logging
 import traceback
 
-from fastapi import APIRouter, status, Depends
+from fastapi import APIRouter, status, Depends, Request
 from fastapi.responses import JSONResponse
+import asyncio
 
 from app.api.deps import get_current_user
 from app.models.user import User
@@ -47,6 +48,7 @@ router = APIRouter(prefix="/agent", tags=["Agent"])
 )
 async def chat(
     payload: AgentRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ) -> JSONResponse:
     import uuid
@@ -70,8 +72,16 @@ async def chat(
                 request_id,
                 result.error_code,
             )
+            
+            # Map specific error codes to appropriate HTTP status codes
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            if result.error_code == "AI_RATE_LIMITED":
+                status_code = status.HTTP_429_TOO_MANY_REQUESTS
+            elif result.error_code == "CLIENT_CANCELLED":
+                status_code = 499  # Client Closed Request
+                
             return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status_code,
                 content=result.model_dump(mode="json"),
             )
 
@@ -81,6 +91,16 @@ async def chat(
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=response_json,
+        )
+    except asyncio.CancelledError:
+        logger.warning("[%s] Client cancelled the request. HTTP 499.", request_id)
+        return JSONResponse(
+            status_code=499,
+            content=AgentErrorResponse(
+                error_code="CLIENT_CANCELLED",
+                message="Request was cancelled by the client.",
+                details="The client aborted the HTTP request before generation completed."
+            ).model_dump(mode="json"),
         )
     except Exception as e:
         logger.exception("[%s] Unhandled exception in chat endpoint: %s", request_id, e)

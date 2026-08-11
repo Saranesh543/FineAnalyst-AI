@@ -55,6 +55,16 @@ class IntentResult(BaseModel):
             return v.lower()
         return v
 
+class VisualizationDecision(BaseModel):
+    """The AI's decision on how to visualize the data or concepts."""
+    visualization: str = Field(
+        description="'chart', 'mermaid', or 'both'"
+    )
+    diagramType: str | None = Field(
+        default=None,
+        description="If visualization includes 'mermaid', the specific Mermaid diagram type (e.g., flowchart, sequenceDiagram, erDiagram, mindmap, timeline, stateDiagram-v2)."
+    )
+
 class QueryPlan(BaseModel):
     """Structured output representing the user's analytical query intent."""
     
@@ -85,9 +95,9 @@ class QueryPlan(BaseModel):
         default_factory=list,
         description="Any specific filtering conditions applied (e.g., 'revenue > 1000', 'status is active')."
     )
-    requested_visualization: str | None = Field(
+    requested_visualization: VisualizationDecision | None = Field(
         default=None,
-        description="Visualization explicitly requested or strongly implied by the operation (e.g., bar, line, pie, scatter, flowchart, er, None)."
+        description="Visualization explicitly requested or strongly implied."
     )
     requires_database: bool = Field(
         default=True,
@@ -107,6 +117,13 @@ class QueryPlan(BaseModel):
     )
 
     model_config = {"use_enum_values": True}
+
+    @field_validator("time_range", "operation", mode="before")
+    @classmethod
+    def handle_lists(cls, v: Any) -> Any:
+        if isinstance(v, list):
+            return ", ".join(str(i) for i in v) if v else None
+        return v
 
     @field_validator("intent", mode="before")
     @classmethod

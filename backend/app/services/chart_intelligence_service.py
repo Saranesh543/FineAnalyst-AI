@@ -153,7 +153,13 @@ class ChartIntelligenceService:
 
         intent = self._detect_intent(question)
         if query_plan and getattr(query_plan, 'requested_visualization', None):
-            intent = query_plan.requested_visualization.lower()
+            req_vis = query_plan.requested_visualization
+            if isinstance(req_vis, str):
+                intent = req_vis.lower()
+            elif hasattr(req_vis, 'visualization'):
+                intent = getattr(req_vis, 'visualization', 'chart').lower()
+            elif isinstance(req_vis, dict):
+                intent = req_vis.get('visualization', 'chart').lower()
             
         decision = VisualizationDecision(chart_type="data_grid", reason="Default fallback", confidence=0.5)
         x_axis = None
@@ -209,6 +215,22 @@ class ChartIntelligenceService:
 
         elif intent == "mermaid":
             decision = VisualizationDecision("mermaid", "Mermaid relationship/flow intent detected.", 1.0)
+            diagram_type = getattr(req_vis, "diagramType", None) if req_vis else None
+            
+            logger.info("[CHART_INTELLIGENCE] Returning MERMAID decision explicitly.")
+            return [VisualizationRecommendation(
+                chart="mermaid",
+                confidence=1.0,
+                reason="Conceptual process visualization requested.",
+                x_axis=None,
+                y_axis=None,
+                metadata=VisualizationMetadata(
+                    chart_type="mermaid",
+                    title=self._generate_title(question) or "Conceptual Diagram",
+                    interactive=True,
+                    diagram_type=diagram_type
+                )
+            )]
 
         # 4. Fallbacks based on data shape if no explicit intent matched
         elif any(c.lower() in ["country", "city", "state", "region", "lat", "lon"] for c in categorical_cols):

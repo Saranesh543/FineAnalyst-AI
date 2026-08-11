@@ -128,7 +128,18 @@ export const agentClient = {
       });
       console.log(`[AgentClient] chat HTTP status: ${res.status}, Time: ${Date.now() - start}ms`);
       if (!res.ok) {
-        throw new Error(`Failed to chat with agent (HTTP ${res.status})`);
+        let errorMsg = `Failed to chat with agent (HTTP ${res.status})`;
+        try {
+          const errorData = await res.json();
+          if (errorData.message) {
+            errorMsg = errorData.message;
+          } else if (errorData.detail) {
+            errorMsg = JSON.stringify(errorData.detail);
+          }
+        } catch (e) {
+          // Fallback if not JSON
+        }
+        throw new Error(errorMsg);
       }
       const data = await res.json();
       console.log(`[AgentClient] chat response parsed successfully.`);

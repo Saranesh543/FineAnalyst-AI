@@ -1,6 +1,16 @@
 "use client";
 
-import { Moon, Sun, Bell, MessageSquare, ChevronDown, User, LogOut, Settings } from "lucide-react";
+import { useState } from "react";
+import {
+  Moon,
+  Sun,
+  Bell,
+  MessageSquare,
+  ChevronDown,
+  User,
+  LogOut,
+  Settings,
+} from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
@@ -11,8 +21,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { RightHistoryPanel } from "@/components/layout/RightHistoryPanel";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { SettingsModal } from "./SettingsModal";
 
 export function TopNav() {
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuthStore();
   const router = useRouter();
@@ -23,9 +38,10 @@ export function TopNav() {
   };
 
   return (
-    <header className="flex items-center justify-between px-6 py-4 border-b border-border/10 bg-background/50 backdrop-blur-md sticky top-0 z-50">
-      <div className="flex items-center gap-8">
-        <div className="text-xl font-medium tracking-tight flex items-center gap-1">
+    <header className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border/10 bg-background/50 backdrop-blur-md sticky top-0 z-50">
+      <div className="flex items-center gap-4 md:gap-8">
+        <SidebarTrigger className="md:hidden" />
+        <div className="text-lg md:text-xl font-medium tracking-tight flex items-center gap-1">
           <span>FineAnalyst</span>
         </div>
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
@@ -38,7 +54,12 @@ export function TopNav() {
             </DropdownMenuContent>
           </DropdownMenu> */}
 
-          <Link href="/" className="text-cyan-400 bg-cyan-400/10 px-3 py-1.5 rounded-full transition-colors border border-cyan-400/20">AI Chat</Link>
+          <Link
+            href="/"
+            className="text-cyan-400 bg-cyan-400/10 px-3 py-1.5 rounded-full transition-colors border border-cyan-400/20"
+          >
+            AI Chat
+          </Link>
 
           {/* <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -61,7 +82,24 @@ export function TopNav() {
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 text-muted-foreground">
+        <div className="flex items-center gap-1 md:gap-2 text-muted-foreground">
+          {/* Mobile History Drawer */}
+          <div className="xl:hidden">
+            <Sheet>
+              <SheetTrigger asChild>
+                <button className="p-2 hover:bg-accent rounded-full transition-colors flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                </button>
+              </SheetTrigger>
+              <SheetContent
+                side="right"
+                className="w-[300px] p-0 sm:max-w-[300px]"
+              >
+                <RightHistoryPanel isMobile={true} />
+              </SheetContent>
+            </Sheet>
+          </div>
+
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="p-2 hover:bg-accent rounded-full transition-colors"
@@ -83,7 +121,7 @@ export function TopNav() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="p-2 hover:bg-accent rounded-full transition-colors relative">
+              <button className="hidden md:flex p-2 hover:bg-accent rounded-full transition-colors relative">
                 <Bell className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
@@ -105,15 +143,28 @@ export function TopNav() {
             </div>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem disabled className="opacity-100 font-medium cursor-default pointer-events-none text-foreground/90 py-3">
-                <User className="mr-2 h-4 w-4" /> {user?.full_name || "Guest"}
-              </DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive cursor-pointer" onClick={handleLogout}>
+            <DropdownMenuItem
+              disabled
+              className="opacity-100 font-medium cursor-default pointer-events-none text-foreground/90 py-3"
+            >
+              <User className="mr-2 h-4 w-4" /> {user?.full_name || "Guest"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer"
+              onClick={() => setIsSettingsOpen(true)}
+            >
+              <Settings className="mr-2 h-4 w-4" /> Settings
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive cursor-pointer"
+              onClick={handleLogout}
+            >
               <LogOut className="mr-2 h-4 w-4" /> Logout
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <SettingsModal isOpen={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
     </header>
   );
 }

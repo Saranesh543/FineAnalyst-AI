@@ -12,33 +12,51 @@ interface AssistantAnswerTextProps {
   isStreaming: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Safe Shiki Wrapper
+// ---------------------------------------------------------------------------
+const ALIASES: Record<string, string> = {
+  "py": "python",
+  "js": "javascript",
+  "ts": "typescript",
+  "sh": "bash",
+  "shell": "bash",
+  "md": "markdown"
+};
+
+const safeCodePlugin = {
+  ...code,
+  highlight: (params: any, callback?: any) => {
+    try {
+      let lang = (params.language || "").toLowerCase().trim();
+      
+      // Normalize common aliases
+      if (ALIASES[lang]) {
+        lang = ALIASES[lang];
+      }
+
+      // Check if language is complete and supported
+      const isSupported = typeof code.supportsLanguage === 'function' && code.supportsLanguage(lang);
+      
+      // If unsupported (e.g. streaming partial like "p" or "pyth")
+      if (!isSupported) {
+        lang = "text"; // Safe fallback to prevent Shiki from crashing
+      }
+
+      return code.highlight?.({ ...params, language: lang }, callback);
+    } catch (e) {
+      console.debug("[SafeCodePlugin] Suppressed highlighting error:", e);
+      return null;
+    }
+  }
+};
+// ---------------------------------------------------------------------------
+
 export function AssistantAnswerText({ text, isStreaming }: AssistantAnswerTextProps) {
   const [displayedText, setDisplayedText] = useState("");
 
   useEffect(() => {
-    if (!text) {
-      setDisplayedText("");
-      return;
-    }
-    
-    // If we're getting text for the first time, type it out
-    if (displayedText.length === 0 && text.length > 0) {
-      let i = 0;
-      const interval = setInterval(() => {
-        if (i < text.length - 1) {
-          setDisplayedText(text.slice(0, i + 1));
-          i++;
-        } else {
-          setDisplayedText(text);
-          clearInterval(interval);
-        }
-      }, 15); // Adjust typing speed here
-      
-      return () => clearInterval(interval);
-    } else if (text !== displayedText && displayedText.length > 0 && text.length === displayedText.length) {
-      // Just a safeguard in case it rerenders with same text
-      setDisplayedText(text);
-    }
+    setDisplayedText(text || "");
   }, [text]);
 
   if (!text && isStreaming) {
@@ -49,7 +67,7 @@ export function AssistantAnswerText({ text, isStreaming }: AssistantAnswerTextPr
     <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none prose-p:leading-relaxed">
       <Streamdown 
         mode={displayedText.length < (text?.length || 0) || isStreaming ? "streaming" : "static"}
-        plugins={{ code, math, mermaid }}
+        plugins={{ code: safeCodePlugin, math, mermaid }}
       >
         {displayedText || text || ""}
       </Streamdown>

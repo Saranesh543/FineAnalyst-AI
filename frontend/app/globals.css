@@ -167,10 +167,12 @@
   body {
     position: relative;
     overflow-x: hidden;
+    width: 100%;
   }
 
   html {
     overflow-x: hidden;
+    width: 100%;
   }
 
   h1,

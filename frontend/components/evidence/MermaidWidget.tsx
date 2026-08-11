@@ -23,15 +23,33 @@ export function MermaidWidget({ code, title }: MermaidWidgetProps) {
     const renderMermaid = async () => {
       try {
         setError(null);
+
+        // Normalize code by removing optional markdown fences
+        let normalizedCode = code.trim();
+        if (normalizedCode.startsWith('```mermaid')) {
+          normalizedCode = normalizedCode.slice(10);
+        } else if (normalizedCode.startsWith('```text')) {
+          normalizedCode = normalizedCode.slice(7);
+        } else if (normalizedCode.startsWith('```')) {
+          normalizedCode = normalizedCode.slice(3);
+        }
+        if (normalizedCode.endsWith('```')) {
+          normalizedCode = normalizedCode.slice(0, -3);
+        }
+        normalizedCode = normalizedCode.trim();
+
+        console.log("[MERMAID WIDGET] Preparing to render:", {
+            code: normalizedCode
+        });
         mermaid.initialize({
           startOnLoad: false,
           theme: "default",
-          securityLevel: "loose",
+          securityLevel: "strict",
         });
 
         // Ensure unique ID for multiple charts
         const id = `mermaid-svg-${Math.round(Math.random() * 1000000)}`;
-        const { svg } = await mermaid.render(id, code);
+        const { svg } = await mermaid.render(id, normalizedCode);
         
         if (isMounted) {
           setSvgContent(svg);

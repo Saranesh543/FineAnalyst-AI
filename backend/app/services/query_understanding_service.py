@@ -34,18 +34,40 @@ Rules for QueryPlan extraction:
 1. If the query is ambiguous (e.g. "Show sales", "Create a chart" with no context), set `clarification_needed = true` and provide a `clarification_question`. DO NOT GUESS missing parameters.
 2. If the user asks "Create a chart for this" or says "Now show it for last year", use the provided Conversation History to inherit context (entities, metric, dimensions) and update the plan.
 3. Extract `metrics`, `dimensions`, `entities`, `time_range`, `filters`. Do NOT invent them from thin air. If multiple metrics are asked (e.g., 'compare sales and profit'), include both in the `metrics` array.
-4. If a visualization is explicitly requested (e.g. "bar chart", "trend line") or strongly implied (trend -> line, compare -> bar, distribution -> pie, correlation -> scatter, flow/process/hierarchy/relationship -> mermaid), set `requested_visualization`.
-5. Fix spelling mistakes or expand abbreviations in `corrected_message` (e.g., 'rev' -> 'revenue'). If no correction is needed, set to the original message.
+4. For `requested_visualization`, you must output an object with `visualization` and `diagramType`.
+   - Set `visualization` to 'chart' if the user asks for numerical data, trends, comparisons, distributions, revenue, expenses, sales, totals, averages, or numerical relationships.
+   - Set `visualization` to 'mermaid' if the user asks for a conceptual structure, workflow, process, interaction, lifecycle, relationships, architecture, system flow, sequence, mindmap, or timeline.
+     - You MUST give explicit priority to phrases like "create a flowchart", "draw a diagram", "show the workflow", "show the interaction", "show the relationship", "show the lifecycle", "make a sequence diagram", "create an ER diagram", "make a mindmap". These strongly indicate Mermaid.
+     - Set `diagramType` to one of: 'flowchart', 'sequenceDiagram', 'erDiagram', 'mindmap', 'timeline', 'stateDiagram-v2'.
+   - Set `visualization` to 'both' if the context explicitly asks for both a data chart and a conceptual diagram (e.g. "Analyze monthly revenue and then show the workflow for how an order is processed").
+   - IMPORTANT: The presence of an uploaded or current dataset must NOT automatically force a question through the SQL/chart pipeline. The user's CURRENT QUESTION has priority. Do not force Mermaid when a chart is more appropriate, and do not force a chart when a conceptual diagram is requested.
+5. Fix spelling mistakes or expand abbreviations in `corrected_message`.
 
 Use the conversation history carefully.
 If previous request was: "Customer count by segment"
 And current request is: "Create a chart for this"
-Then intent is `database`, metrics is ["Customer count"], dimensions is ["segment"], clarification_needed is false, requested_visualization is "bar".
+Then intent is `database`, metrics is ["Customer count"], dimensions is ["segment"], clarification_needed is false, requested_visualization is {"visualization": "chart"}.
 
-If a Previous QueryPlan is provided, you must MERGE the new question's intent with the previous QueryPlan to produce a Merged QueryPlan. Preserve the previous entities, dataset references, and time range unless explicitly changed. Never fall back to defaults if previous context exists.
-CRITICAL RULE: You may ONLY use columns present in the current dataset schema or context. Never invent columns. Never reuse columns from previous conversations or previous datasets if they are not in the current schema. If the requested concept is unavailable, explain that it cannot be calculated from the current dataset.
-CRITICAL RULE: Follow-up queries containing pronouns like "this", "that", "it", "these", "them" along with analytical verbs (create, show, compare, chart) MUST be classified as `database` intent. NEVER classify a request to chart or compare data as `conversation`.
-CRITICAL RULE: If the user asks "what database do you have?", "who are you?", "how does this work?", or asks questions ABOUT the system itself, you MUST classify it as `conversation` or `knowledge`. DO NOT classify it as `database`.
+If the user asks: "Show the workflow for processing an emergency request."
+Then intent is `database`, requested_visualization is {"visualization": "mermaid", "diagramType": "flowchart"}, requires_database is false.
+
+If the user asks: "Show the interaction between Customer, Web App, Payment Gateway and Database during checkout."
+Then intent is `database`, requested_visualization is {"visualization": "mermaid", "diagramType": "sequenceDiagram"}, requires_database is false.
+
+If the user asks: "Compare revenue and expenses."
+Then intent is `database`, requested_visualization is {"visualization": "chart"}, requires_database is true.
+
+If the user asks: "Analyze monthly revenue and show the order-processing workflow."
+Then intent is `database`, requested_visualization is {"visualization": "both", "diagramType": "flowchart"}, requires_database is true.
+
+CRITICAL RULE for `requires_database`:
+- Set `requires_database` to true for ALL requests involving data analysis, trends, comparisons, KPIs, or any numerical data retrieval (e.g. "Analyze sales", "Compare revenue", "Predict trends").
+- Set `requires_database` to false ONLY for purely conceptual diagrams that do not require database data.
+
+If a Previous QueryPlan is provided, you must MERGE the new question's intent with the previous QueryPlan to produce a Merged QueryPlan.
+CRITICAL RULE: You may ONLY use columns present in the current dataset schema or context. Never invent columns.
+CRITICAL RULE: Follow-up queries containing pronouns like "this" along with analytical verbs MUST be classified as `database` intent.
+CRITICAL RULE: If the user asks about the application's database, architecture, or storage (e.g. "what database do you have?", "which database are you using?", "where is the data stored?", "what DB does FineAnalyst use?"), classify it as `conversation` or `knowledge`.
 CRITICAL RULE: Questions asking for explanations, reasoning, or meta-questions about your previous answers (e.g., "why didn't you...", "what did you mean by...") MUST be classified as `conversation` or `knowledge`. DO NOT attempt to generate SQL for these.
 """
 
@@ -77,11 +99,26 @@ class QueryUnderstandingService:
             "thanks", "thank you", "thx", "thnks",
             "ok", "okay", "col", "nice", "great", "awesome",
             "who are you", "what can you do", "help", "how are you", "nice to met you",
-            "gm", "gn", "god mrng", "mrng",
-            "what database do you have", "what database", "what databases", "which database"
+            "gm", "gn", "god mrng", "mrng"
         }
         
         if deduped in conversational_keywords:
+            return QueryPlan(
+                intent=Intent.CONVERSATION,
+                requires_database=False,
+                corrected_message=message
+            )
+            
+        # Robust heuristic for application/database meta-questions
+        if re.search(r'\b(what|which|where)\b.*\b(database|db|data)\b.*\b(have|use|using|stored|app|fineanalyst)\b', cleaned):
+            return QueryPlan(
+                intent=Intent.CONVERSATION,
+                requires_database=False,
+                corrected_message=message
+            )
+            
+        # Robust heuristic for creator/origin/FineWorks meta-questions
+        if re.search(r'\b(who|what|tell)\b.*\b(created|made|developed|built|behind|creator|creators|team|company|fineworks)\b', cleaned) or 'fineworks' in cleaned:
             return QueryPlan(
                 intent=Intent.CONVERSATION,
                 requires_database=False,
@@ -140,18 +177,23 @@ class QueryUnderstandingService:
             raw_output = result.data if hasattr(result, 'data') else result.output
             plan = self._normalize_and_parse(raw_output, message)
             logger.info("Extracted QueryPlan intent: %s | Clarification: %s", plan.intent, plan.clarification_needed)
+            
+            if plan.requested_visualization:
+                logger.info(
+                    "[MERMAID DECISION]\n{\n  question: \"%s\",\n  visualization: \"%s\",\n  diagramType: \"%s\"\n}",
+                    plan.corrected_message or message,
+                    plan.requested_visualization.visualization,
+                    plan.requested_visualization.diagramType or "null"
+                )
             return plan
         except Exception as e:
             logger.error("Intent routing model failed: %s", e)
-            if inline_columns:
-                logger.warning("Fail-safe triggered: Fallback to DATABASE intent because inline data was provided.")
-                return QueryPlan(
-                    intent=Intent.DATABASE,
-                    requires_database=False,
-                    corrected_message=message
-                )
-            raise e
-
+            return QueryPlan(
+                intent=Intent.CONVERSATION,
+                corrected_message=message,
+                requires_database=False
+            )
+            
     def _normalize_and_parse(self, raw_output: str, original_message: str) -> QueryPlan:
         import json
         text = raw_output.strip()

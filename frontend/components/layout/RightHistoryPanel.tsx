@@ -1,6 +1,13 @@
 "use client";
 
-import { MessageSquare, MoreVertical, Plus, Trash, Edit, Loader2 } from "lucide-react";
+import {
+  MessageSquare,
+  MoreVertical,
+  Plus,
+  Trash,
+  Edit,
+  Loader2,
+} from "lucide-react";
 import { useConversationStore } from "@/lib/store/conversation-store";
 import {
   DropdownMenu,
@@ -11,9 +18,21 @@ import {
 import { format, isToday, isYesterday, isThisWeek } from "date-fns";
 import { useState, useRef, useEffect } from "react";
 
-export function RightHistoryPanel() {
-  const { sessions, activeSessionId, createNewSession, switchSession, deleteSession, updateSessionTitle, isInitializing } = useConversationStore();
-  
+export function RightHistoryPanel({
+  isMobile = false,
+}: {
+  isMobile?: boolean;
+}) {
+  const {
+    sessions,
+    activeSessionId,
+    createNewSession,
+    switchSession,
+    deleteSession,
+    updateSessionTitle,
+    isInitializing,
+  } = useConversationStore();
+
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -32,13 +51,25 @@ export function RightHistoryPanel() {
   };
 
   const sessionList = Object.values(sessions).sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
   );
 
-  const today = sessionList.filter(s => isToday(new Date(s.updatedAt)));
-  const yesterday = sessionList.filter(s => isYesterday(new Date(s.updatedAt)));
-  const last7Days = sessionList.filter(s => isThisWeek(new Date(s.updatedAt)) && !isToday(new Date(s.updatedAt)) && !isYesterday(new Date(s.updatedAt)));
-  const older = sessionList.filter(s => !isToday(new Date(s.updatedAt)) && !isYesterday(new Date(s.updatedAt)) && !isThisWeek(new Date(s.updatedAt)));
+  const today = sessionList.filter((s) => isToday(new Date(s.updatedAt)));
+  const yesterday = sessionList.filter((s) =>
+    isYesterday(new Date(s.updatedAt)),
+  );
+  const last7Days = sessionList.filter(
+    (s) =>
+      isThisWeek(new Date(s.updatedAt)) &&
+      !isToday(new Date(s.updatedAt)) &&
+      !isYesterday(new Date(s.updatedAt)),
+  );
+  const older = sessionList.filter(
+    (s) =>
+      !isToday(new Date(s.updatedAt)) &&
+      !isYesterday(new Date(s.updatedAt)) &&
+      !isThisWeek(new Date(s.updatedAt)),
+  );
 
   const renderSessionGroup = (title: string, items: typeof sessionList) => {
     if (items.length === 0) return null;
@@ -47,17 +78,23 @@ export function RightHistoryPanel() {
         <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
         <div className="space-y-1">
           {items.map((item) => (
-            <div 
-              key={item.id} 
+            <div
+              key={item.id}
               onClick={() => switchSession(item.id)}
               className={`flex flex-col gap-1 p-2 rounded-lg cursor-pointer group transition-all duration-200 ${
-                activeSessionId === item.id ? "bg-cyan-500/10 border-transparent shadow-[inset_0_1px_0_0_rgba(34,211,238,0.1)]" : "hover:bg-white/5 border border-transparent"
+                activeSessionId === item.id
+                  ? "bg-cyan-500/10 border-transparent shadow-[inset_0_1px_0_0_rgba(34,211,238,0.1)]"
+                  : "hover:bg-white/5 border border-transparent"
               }`}
             >
               <div className="flex items-center justify-between text-sm">
-                <div className={`flex items-center gap-2 truncate ${
-                  activeSessionId === item.id ? "text-cyan-400 font-medium" : "text-foreground/90"
-                }`}>
+                <div
+                  className={`flex items-center gap-2 truncate ${
+                    activeSessionId === item.id
+                      ? "text-cyan-400 font-medium"
+                      : "text-foreground/90"
+                  }`}
+                >
                   <MessageSquare className="h-4 w-4 shrink-0 opacity-70" />
                   {editingSessionId === item.id ? (
                     <input
@@ -81,7 +118,7 @@ export function RightHistoryPanel() {
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
                     {format(new Date(item.updatedAt), "HH:mm")}
                   </span>
-                  
+
                   <div onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -90,7 +127,7 @@ export function RightHistoryPanel() {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           className="cursor-pointer"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -103,7 +140,7 @@ export function RightHistoryPanel() {
                         {/* <DropdownMenuItem disabled className="text-muted-foreground cursor-not-allowed">
                           <Pin className="h-4 w-4 mr-2" /> Pin (Coming Soon)
                         </DropdownMenuItem> */}
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           className="text-destructive focus:bg-destructive/10 cursor-pointer"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -125,10 +162,12 @@ export function RightHistoryPanel() {
   };
 
   return (
-    <div className="w-[300px] shrink-0 border-l border-border/10 bg-background/50 backdrop-blur-md hidden xl:flex flex-col h-full overflow-hidden">
+    <div
+      className={`w-full xl:w-[300px] shrink-0 xl:border-l border-border/10 bg-background/50 backdrop-blur-md flex flex-col h-full overflow-hidden ${isMobile ? "" : "hidden xl:flex"}`}
+    >
       <div className="p-4 flex items-center justify-between">
         <h2 className="font-semibold text-lg">History Chat</h2>
-        <button 
+        <button
           onClick={() => createNewSession()}
           className="flex items-center gap-1 text-sm font-medium text-cyan-400 hover:text-cyan-300 transition-all duration-200 hover:scale-105 active:scale-95 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 hover:shadow-[0_0_15px_rgba(34,211,238,0.2)]"
         >
@@ -156,7 +195,7 @@ export function RightHistoryPanel() {
           </>
         )}
       </div>
-      
+
       {/* Made by FineWorks Credit */}
       <div className="p-4 border-t border-border/10 text-xs text-muted-foreground/50 text-center">
         Made by <span className="text-cyan-500/70 font-medium">FineWorks</span>

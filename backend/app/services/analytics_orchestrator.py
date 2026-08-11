@@ -214,6 +214,13 @@ class AnalyticsOrchestratorService:
                     )]
                 )
                 
+            if query_plan.requested_visualization and (isinstance(query_plan.requested_visualization, dict) and query_plan.requested_visualization.get("visualization") == "mermaid") or (hasattr(query_plan.requested_visualization, "visualization") and query_plan.requested_visualization.visualization == "mermaid"):
+                logger.info("[MERMAID DECISION] %s", json.dumps({
+                    "visualization": "mermaid",
+                    "diagramType": (query_plan.requested_visualization.get("diagramType") if isinstance(query_plan.requested_visualization, dict) else getattr(query_plan.requested_visualization, "diagramType", None)),
+                    "requires_db": getattr(query_plan, "requires_database", False)
+                }))
+
             steps.append(WorkflowStep(
                 name="intent_routing",
                 status="done",
@@ -540,6 +547,12 @@ class AnalyticsOrchestratorService:
             confidence_score=confidence_score,
             steps=steps
         )
+        
+        # Log MERMAID RESPONSE if applicable
+        if vis_responses and any(v.chart == "mermaid" for v in vis_responses):
+            logger.info("[MERMAID RESPONSE] %s", json.dumps([v.model_dump() for v in vis_responses if v.chart == "mermaid"]))
+
+        return final_response
 
 
 # ---------------------------------------------------------------------------

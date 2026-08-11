@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, status, Depends
+from fastapi import APIRouter, status, Depends, Request
 from fastapi.responses import JSONResponse
+import asyncio
 import pydantic_ai.exceptions
 
 from app.api.deps import get_current_user
@@ -60,6 +61,7 @@ router = APIRouter(prefix="/analyze", tags=["Analytics Workflow"])
 )
 async def analyze_workflow(
     payload: AnalyzeRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ) -> JSONResponse:
     import uuid
@@ -191,6 +193,16 @@ async def analyze_workflow(
                 message=message,
                 stage=exc.stage,
                 steps=exc.steps,
+            ).model_dump(mode="json"),
+        )
+    except asyncio.CancelledError:
+        logger.warning("[%s] Client cancelled the request. HTTP 499.", request_id)
+        return JSONResponse(
+            status_code=499,
+            content=AnalyzeErrorResponse(
+                error="CLIENT_CANCELLED",
+                message="Request was cancelled by the client.",
+                stage="unknown"
             ).model_dump(mode="json"),
         )
     except pydantic_ai.exceptions.UnexpectedModelBehavior as exc:

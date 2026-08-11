@@ -42,6 +42,8 @@ class VisualizationMetadata(BaseModel):
     number_format: str | None = Field(default=None, description="Recommended format (e.g., currency, compact, percentage).")
     interactive: bool = Field(default=True, description="Whether the chart should support interactivity like brushing.")
     mermaid_code: str | None = Field(default=None, description="Generated Mermaid syntax if chart type is 'mermaid'.")
+    mermaid_error: str | None = Field(default=None, description="Controlled error message if Mermaid generation fails.")
+    diagram_type: str | None = Field(default=None, description="The type of the diagram (e.g., flowchart).")
 
 
 # ---------------------------------------------------------------------------

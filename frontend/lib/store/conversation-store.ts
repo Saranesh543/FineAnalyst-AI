@@ -25,6 +25,7 @@ export interface ConversationSession {
 
 interface ConversationState {
   currentAbortController: AbortController | null;
+  isGenerating: boolean;
   activeSessionId: string | null;
   sessions: Record<string, ConversationSession>;
   stagedAttachments: FileAttachment[];
@@ -47,6 +48,7 @@ interface ConversationState {
 
 export const useConversationStore = create<ConversationState>()((set, get) => ({
   currentAbortController: null,
+  isGenerating: false,
   activeSessionId: null,
   sessions: {},
   stagedAttachments: [],
@@ -56,7 +58,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
     const { currentAbortController } = get();
     if (currentAbortController) {
       currentAbortController.abort();
-      set({ currentAbortController: null });
+      set({ currentAbortController: null, isGenerating: false });
     }
   },
 
@@ -293,10 +295,15 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   }),
 
   sendMessage: async (text: string) => {
+    let { activeSessionId, sessions, stagedAttachments, updateTurn, updateSessionTitle, isGenerating } = get();
+    
+    // Prevent parallel generations
+    if (isGenerating) {
+      console.log('[Store] A generation is already active. Stop it first.');
+      return;
+    }
+    
     const reqId = uuidv4().slice(0, 8);
-    get().cancelRequest(); // Cancel any ongoing request
-
-    let { activeSessionId, sessions, stagedAttachments, updateTurn, updateSessionTitle } = get();
     
     if (!activeSessionId || !sessions[activeSessionId]) {
       activeSessionId = await get().createNewSession();
@@ -305,6 +312,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
     const abortController = new AbortController();
     set({ 
       currentAbortController: abortController,
+      isGenerating: true,
       stagedAttachments: [] // Clear staged attachments immediately
     });
 
@@ -390,7 +398,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         return true;
       });
 
-      const recentTurns = cleanTurns.slice(-20);
+      const recentTurns = cleanTurns.slice(-6);
       const history = recentTurns.map(m => {
         let content = m.role === 'user' ? (m.userText || "") : (m.answerText || "Analysis complete.");
         if (m.role === 'assistant') {
@@ -399,10 +407,6 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
             const ev = m.evidence[0];
             if (ev.sql) content += `\n\n[Previous SQL Query Executed: ${ev.sql}]`;
             }
-          }
-          if (m.queryPlan) {
-            let qpString = typeof m.queryPlan === 'string' ? m.queryPlan : JSON.stringify(m.queryPlan);
-            content += `\n\n[Previous QueryPlan: ${qpString}]`;
           }
         }
         return { role: m.role, content };
@@ -438,6 +442,8 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       if (analyzeRes.execution && (analyzeRes.visualizations || analyzeRes.visualization)) {
         const visualizations = analyzeRes.visualizations || [analyzeRes.visualization];
         
+        console.log("[MERMAID RESPONSE] analyzeRes.visualizations:", visualizations);
+        
         let commonData: any[] = [];
         let commonRowSample: any[] = [];
         
@@ -459,15 +465,81 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
           const artifactMetadata = vis.metadata;
           
           let validKeys: Set<string> | undefined;
-          
           let chartData = commonData;
+          
+          // --- VALIDATION LAYER ---
           if (vis.x_axis || vis.y_axis) {
+            const dataKeys = commonData.length > 0 ? Object.keys(commonData[0]) : [];
             const yKeys = vis.y_axis ? vis.y_axis.split(',').map((s: string) => s.trim()) : [];
             const xKey = vis.x_axis;
-            validKeys = new Set([...yKeys]);
-            if (xKey) validKeys.add(xKey);
             
-            if (validKeys.size > 0 && artifactChartType !== 'data_grid') {
+            let isValid = true;
+            let invalidKey: string | null = null;
+            
+            if (xKey && !dataKeys.includes(xKey)) {
+              isValid = false;
+              invalidKey = xKey;
+            }
+            if (isValid) {
+              for (const k of yKeys) {
+                if (!dataKeys.includes(k)) {
+                  isValid = false;
+                  invalidKey = k;
+                  break;
+                }
+              }
+            }
+
+            if (!isValid) {
+               console.log(`[INVALID_KEY] Analysis ${assistantTurnId}: Key ${invalidKey} not found in data. Regenerating chart spec...`);
+               console.log(`[DATASET SCHEMA] ${dataKeys.join(', ')}`);
+               console.log(`[QUERY RESULT COLUMNS] ${dataKeys.join(', ')}`);
+               console.log(`[CHART PLANNER INPUT] Old metadata: x=${xKey}, y=${vis.y_axis}`);
+               
+               // Regenerate chart specification based on actual schema
+               const numericCols = dataKeys.filter(k => typeof commonData[0][k] === 'number' || (typeof commonData[0][k] === 'string' && !isNaN(parseFloat(commonData[0][k]))));
+               const nonNumericCols = dataKeys.filter(k => !numericCols.includes(k));
+               
+               let newX = nonNumericCols.length > 0 ? nonNumericCols[0] : (numericCols.length > 0 ? numericCols[0] : null);
+               let newY: string[] = [];
+               for (const col of numericCols) {
+                 if (col !== newX) newY.push(col);
+               }
+               // Fallback if no other numeric cols
+               if (newY.length === 0 && numericCols.length > 0) newY.push(numericCols[0]);
+               
+               if (newY.length > 0 && newX) {
+                 vis.x_axis = newX;
+                 vis.y_axis = newY.join(',');
+                 if (artifactMetadata) {
+                   (artifactMetadata as any).x_axis = vis.x_axis;
+                   (artifactMetadata as any).y_axis = vis.y_axis;
+                   (artifactMetadata as any).chart_type = 'bar';
+                 }
+                 vis.chart = 'bar';
+                 console.log(`[CHART PLANNER OUTPUT] New metadata: x=${vis.x_axis}, y=${vis.y_axis}, type=bar`);
+               } else {
+                 vis.x_axis = undefined;
+                 vis.y_axis = undefined;
+                 if (artifactMetadata) {
+                   (artifactMetadata as any).x_axis = undefined;
+                   (artifactMetadata as any).y_axis = undefined;
+                   (artifactMetadata as any).chart_type = 'data_grid';
+                 }
+                 vis.chart = 'data_grid';
+                 console.log(`[CHART PLANNER OUTPUT] New metadata: data_grid`);
+               }
+               console.log(`[CHART VALIDATION] Recovered for analysisId: ${assistantTurnId}`);
+               console.log(`[EVIDENCE ARTIFACT PROPS] Rendering with new props.`);
+            }
+
+            // Apply validated or regenerated spec
+            const newYKeys = vis.y_axis ? vis.y_axis.split(',').map((s: string) => s.trim()) : [];
+            const newXKey = vis.x_axis;
+            validKeys = new Set([...newYKeys]);
+            if (newXKey) validKeys.add(newXKey);
+            
+            if (validKeys.size > 0 && vis.chart !== 'data_grid') {
                chartData = commonData.map(row => {
                  const filtered: Record<string, any> = {};
                  for (const k of validKeys!) {
@@ -477,9 +549,10 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
                });
             }
           }
+          // --- END VALIDATION LAYER ---
 
           let filteredInsights = analyzeRes.insight;
-          if (analyzeRes.insight && validKeys && validKeys.size > 0 && artifactChartType !== 'data_grid') {
+          if (analyzeRes.insight && validKeys && validKeys.size > 0 && vis.chart !== 'data_grid') {
             const validKeysArr = Array.from(validKeys);
             const filteredKpis = (analyzeRes.insight.kpi_cards || []).filter(kpi => {
               const labelLower = kpi.label.toLowerCase();
@@ -491,20 +564,41 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
             filteredInsights = { ...analyzeRes.insight, kpi_cards: filteredKpis };
           }
 
-          evidence.push({
-            id: uuidv4(),
-            kind: 'chart',
-            chartType: artifactChartType as any,
-            data: chartData,
-            sql: analyzeRes.sql,
-            rowCountTotal: analyzeRes.execution.row_count,
-            rowSample: commonRowSample,
-            title: artifactTitle,
-            insights: filteredInsights,
-            confidenceScore: String(vis.confidence || analyzeRes.confidence_score || ''),
-            metadata: artifactMetadata
-          });
+          if (vis.chart === 'mermaid') {
+            evidence.push({
+              id: uuidv4(),
+              analysisId: assistantTurnId,
+              kind: 'mermaid',
+              mermaidCode: artifactMetadata?.mermaid_code,
+              mermaidError: artifactMetadata?.mermaid_error,
+              diagramType: artifactMetadata?.diagram_type,
+              data: chartData,
+              sql: analyzeRes.sql || '',
+              rowCountTotal: analyzeRes.execution?.row_count || 0,
+              rowSample: commonRowSample,
+              title: artifactTitle,
+              insights: filteredInsights,
+              confidenceScore: String(vis.confidence || analyzeRes.confidence_score || ''),
+              metadata: artifactMetadata
+            });
+          } else {
+            evidence.push({
+              id: uuidv4(),
+              analysisId: assistantTurnId,
+              kind: 'chart',
+              chartType: vis.chart as any,
+              data: chartData,
+              sql: analyzeRes.sql || '',
+              rowCountTotal: analyzeRes.execution?.row_count || 0,
+              rowSample: commonRowSample,
+              title: artifactTitle,
+              insights: filteredInsights,
+              confidenceScore: String(vis.confidence || analyzeRes.confidence_score || ''),
+              metadata: artifactMetadata
+            });
+          }
         }
+        console.log("[MERMAID ARTIFACT] evidence artifacts:", evidence);
       }
 
       let answerText = chatRes?.message || '';
@@ -557,10 +651,11 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       if (finalTurnState) {
         agentClient.saveTurn(activeSessionId!, finalTurnState).catch(e => console.error("Failed to save assistant turn", e));
       }
-
-      set({ currentAbortController: null });
+      
+      set({ currentAbortController: null, isGenerating: false });
 
     } catch (error: any) {
+      set({ currentAbortController: null, isGenerating: false });
       isFetching = false;
       
       if (error.name === 'AbortError') {
@@ -568,8 +663,15 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         get().updateTurn(assistantTurnId, t => ({
           ...t,
           status: 'complete',
-          answerText: t.answerText || "Request cancelled.",
+          answerText: t.answerText ? t.answerText : "*Generation stopped by user.*",
         }));
+        
+        // Save the cancelled turn to the backend to maintain consistency
+        const finalTurnState = get().sessions[activeSessionId!].messages.find(m => m.id === assistantTurnId);
+        if (finalTurnState) {
+          agentClient.saveTurn(activeSessionId!, finalTurnState).catch(e => console.error("Failed to save cancelled turn", e));
+        }
+        
         return;
       }
       
@@ -585,10 +687,15 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         }));
       }
 
+      let errorMessage = "Sorry, I encountered an error while processing your request.";
+      if (error instanceof Error && error.message && !error.message.includes("HTTP 500")) {
+        errorMessage = error.message;
+      }
+
       get().updateTurn(assistantTurnId, t => ({
         ...t,
         status: 'error',
-        answerText: "Sorry, I encountered an error while processing your request.",
+        answerText: errorMessage,
         thinkingSteps: backendSteps.length > 0 ? backendSteps : t.thinkingSteps
       }));
       

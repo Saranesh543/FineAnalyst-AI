@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -136,6 +137,54 @@ class AgentService:
             except Exception as e:
                 logger.error("Failed to fetch attachments for context: %s", e)
 
+        # Intercept database meta-questions deterministically (no LLM call)
+        import re
+        cleaned_msg = re.sub(r'[^\w\s]', '', user_message.strip().lower())
+        
+        if re.search(r'\b(what|which|where)\b.*\b(database|db|data)\b.*\b(have|use|using|stored|app|fineanalyst)\b', cleaned_msg):
+            logger.info("[request_id=%s] Intercepted database meta-question. Returning deterministic response.", request_id)
+            return AgentResponse(
+                status=AgentStatus.SUCCESS,
+                session_id=session_id,
+                message="I use FineAnalyst's application database architecture. My primary backend is a **SQLite database** (`fineanalyst.db`). I also dynamically ingest and query any structured datasets (like CSV or Excel files) that you upload directly into our current conversation.",
+                usage=UsageInfo(requests=0, request_tokens=0, response_tokens=0, total_tokens=0)
+            )
+
+        if re.search(r'\b(who|what|tell)\b.*\b(created|made|developed|built|behind|creator|creators|team|company|fineworks)\b', cleaned_msg) or 'fineworks' in cleaned_msg:
+            logger.info("[request_id=%s] Intercepted creator/FineWorks meta-question. Returning deterministic response.", request_id)
+            
+            # Dynamically adapt the response string based on what the user asked
+            is_who_created_you = bool(re.search(r'\b(who|what|tell)\b.*\b(created|made|developed|built)\b.*\b(you)\b', cleaned_msg))
+            is_who_members = bool(re.search(r'\b(who)\b.*\b(members|team)\b', cleaned_msg))
+            is_relationship = bool(re.search(r'\b(relationship|are you)\b.*\b(fineworks)\b', cleaned_msg))
+
+            if is_relationship:
+                msg = "I'm FineAnalyst, a product developed by FineWorks. FineWorks is the technology team behind me."
+            elif is_who_members:
+                msg = "FineWorks is made up of Saranesh, Praveen Balaji, Nitish, and Sakthi Saran."
+            elif is_who_created_you:
+                msg = (
+                    "I was created by FineWorks. FineWorks is an innovation-driven technology team founded in 2024 by Saranesh, Praveen Balaji, Nitish, and Sakthi Saran. "
+                    "The team builds modern websites, web applications, AI-powered solutions, and digital products. "
+                    "I'm FineAnalyst, one of the AI-powered products developed by FineWorks."
+                )
+            else:
+                msg = (
+                    "FineWorks is an innovation-driven technology team founded in 2024. The team focuses on building modern websites, web applications, AI-powered solutions, software, and digital products that help startups and businesses grow.\n\n"
+                    "Its areas include software development, web development, full-stack development, problem solving, digital transformation, and technology consulting. "
+                    "FineWorks also participates in hackathons and innovation challenges, with a focus on turning ideas into practical technology solutions.\n\n"
+                    "The team consists of Saranesh, Praveen Balaji, Nitish, and Sakthi Saran.\n\n"
+                    "Some of their projects include FineAnalyst-AI (me!), FineFlow, FineGuard, ResQ-Link, and FineFeed. "
+                    "You can learn more about FineWorks at https://www.thefineworks.com/"
+                )
+            
+            return AgentResponse(
+                status=AgentStatus.SUCCESS,
+                session_id=session_id,
+                message=msg,
+                usage=UsageInfo(requests=0, request_tokens=0, response_tokens=0, total_tokens=0)
+            )
+
         try:
             agent = get_agent()  # lazy — raises ValueError if key is missing
             result = await agent.run(
@@ -170,22 +219,60 @@ class AgentService:
                 usage=usage_info,
             )
 
+        except asyncio.CancelledError as exc:
+            elapsed_ms = (time.perf_counter() - t_start) * 1_000
+            logger.warning("[request_id=%s] Request cancelled by client (CancelledError) | elapsed=%.1f ms", request_id, elapsed_ms)
+            return AgentErrorResponse(
+                status=AgentStatus.ERROR,
+                error_code="CLIENT_CANCELLED",
+                message="The request was cancelled by the client."
+            )
         except Exception as exc:  # noqa: BLE001 — intentional broad catch
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
-            error_code = type(exc).__name__
+            exc_type = type(exc).__name__
 
+            # 1) Client Cancellation (for older Python or custom CancelledError wrappers)
+            if exc_type == "CancelledError":
+                logger.warning("[request_id=%s] Request cancelled by client (via Exception) | elapsed=%.1f ms", request_id, elapsed_ms)
+                return AgentErrorResponse(
+                    status=AgentStatus.ERROR,
+                    error_code="CLIENT_CANCELLED",
+                    message="The request was cancelled by the client."
+                )
+
+            # 2) Rate Limits
+            is_429 = (
+                exc_type == "RateLimitError" or 
+                (hasattr(exc, "status_code") and getattr(exc, "status_code") == 429) or 
+                (hasattr(exc, "response") and hasattr(exc.response, "status_code") and getattr(exc.response, "status_code") == 429)
+            )
+            
+            if is_429:
+                logger.warning(
+                    "[request_id=%s] AI provider rate limit reached (HTTP 429) | elapsed=%.1f ms | exc=%s",
+                    request_id,
+                    elapsed_ms,
+                    exc_type
+                )
+                return AgentErrorResponse(
+                    status=AgentStatus.ERROR,
+                    error_code="AI_RATE_LIMITED",
+                    message="The AI provider rate limit has been reached. Please try again later."
+                )
+
+            # 3) Generic / Other provider errors
             logger.exception(
                 "[request_id=%s] Agent run failed | elapsed=%.1f ms | "
                 "error=%s: %s",
                 request_id,
                 elapsed_ms,
-                error_code,
-                exc,
+                exc_type,
+                str(exc),
             )
 
             return AgentErrorResponse(
                 status=AgentStatus.ERROR,
-                error_code=error_code,
+                error_code=exc_type,
                 message=self._humanise_error(exc)
             )
 
