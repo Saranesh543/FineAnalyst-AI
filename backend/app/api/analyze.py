@@ -181,10 +181,13 @@ async def analyze_workflow(
                 status_code = status.HTTP_502_BAD_GATEWAY
                 error_code = "llm_provider_error"
                 message = "The AI provider returned an unexpected response. Please try again."
-            elif isinstance(root_cause, ValueError) and "GROQ_API_KEY" in original_str:
+            elif isinstance(root_cause, ValueError) and (
+                "API_KEY" in original_str or "not configured" in original_str.lower()
+                or "missing" in original_str.lower()
+            ):
                 status_code = status.HTTP_503_SERVICE_UNAVAILABLE
                 error_code = "configuration_error"
-                message = "The AI provider API key is not configured. Contact the administrator."
+                message = "The AI provider is not configured. Contact the administrator."
 
         return JSONResponse(
             status_code=status_code,

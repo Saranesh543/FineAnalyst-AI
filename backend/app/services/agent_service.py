@@ -187,10 +187,17 @@ class AgentService:
 
         try:
             agent = get_agent()  # lazy — raises ValueError if key is missing
+            provider_name = settings.AI_PROVIDER
+            
+            logger.info("[LLM] [request_id=%s] provider=%s", request_id, provider_name)
+            logger.info("[LLM] [request_id=%s] request_started", request_id)
+            
             result = await agent.run(
                 user_message,
                 message_history=model_history if model_history else None,
             )
+            
+            logger.info("[LLM] [request_id=%s] request_completed", request_id)
 
             elapsed_ms = (time.perf_counter() - t_start) * 1_000
             # In PydanticAI 2.22, `usage` is a property (RunUsage dataclass),
@@ -261,6 +268,19 @@ class AgentService:
                 )
 
             # 3) Generic / Other provider errors
+            status_code = "UNKNOWN"
+            if hasattr(exc, "status_code"):
+                status_code = getattr(exc, "status_code")
+            elif hasattr(exc, "response") and hasattr(exc.response, "status_code"):
+                status_code = getattr(exc.response, "status_code")
+
+            logger.error(
+                "[LLM] [request_id=%s] request_failed exception_type=%s status_code=%s",
+                request_id,
+                exc_type,
+                status_code
+            )
+
             logger.exception(
                 "[request_id=%s] Agent run failed | elapsed=%.1f ms | "
                 "error=%s: %s",
@@ -311,10 +331,10 @@ class AgentService:
         exc_type = type(exc).__name__
 
         # Common network / API error patterns
-        if "api" in exc_type.lower() or "groq" in exc_type.lower() or "openai" in exc_type.lower():
+        if any(kw in exc_type.lower() for kw in ("api", "groq", "openai", "omniroute", "http")):
             return (
                 "The AI model returned an error. "
-                "Please check your API key and try again."
+                "Please check the provider configuration and try again."
             )
         if "timeout" in exc_type.lower() or "connect" in exc_type.lower():
             return (
